@@ -32,11 +32,11 @@ from src.visualization import (
 VIEWS = ["Ringkasan", "Profil Klaster", "Evaluasi", "Peta", "Data"]
 
 VIEW_TITLES = {
-    "Ringkasan": ("Ringkasan", "Tinjauan tingkat tinggi hasil klasterisasi."),
-    "Profil Klaster": ("Profil Klaster", "Karakteristik dan distribusi setiap klaster."),
-    "Evaluasi": ("Evaluasi Model", "Elbow, Silhouette campuran, dan evaluasi surrogate."),
-    "Peta": ("Peta Distribusi Spasial", "Sebaran klaster bila koordinat tersedia."),
-    "Data": ("Data", "Pratinjau dan ekspor dataset pada setiap tahap."),
+    "Ringkasan": ("Ringkasan Hasil Klasterisasi", "Tinjauan tingkat tinggi hasil pengelompokan pelabuhan."),
+    "Profil Klaster": ("Karakteristik & Profil Klaster", "Karakteristik fitur dan distribusi tiap klaster hasil pemodelan."),
+    "Evaluasi": ("Evaluasi Kualitas Model", "Metode Elbow, skor Silhouette campuran, dan evaluasi model surrogate."),
+    "Peta": ("Peta Distribusi Spasial", "Visualisasi persebaran geografis klaster pelabuhan."),
+    "Data": ("Eksplorasi & Ekspor Data", "Pratinjau tabel dan opsi ekspor dataset pada setiap tahapan analisis."),
 }
 
 DASHBOARD_CSS = r"""
@@ -107,11 +107,11 @@ def _goto_input() -> None:
 
 def _no_results(view: str) -> None:
     st.info(
-        "Belum ada hasil analisis pada sesi ini. Buka halaman **Input Data**, unggah ketiga "
-        "file wajib, lalu jalankan proses."
+        "Belum ada hasil analisis pada sesi ini. Silakan buka halaman **Input Data**, unggah ketiga "
+        "berkas wajib, lalu jalankan proses pemodelan."
     )
     st.button(
-        "Ke Halaman Input Data  â†’",
+        "Ke Halaman Input Data →",
         type="primary",
         on_click=_goto_input,
     )
@@ -126,9 +126,9 @@ def _render_summary(result: dict) -> None:
     struct = _cluster_structure(clustered)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Jumlah Observasi", f"{len(clustered):,}")
-    c2.metric("Jumlah Pelabuhan", f"{clustered['port'].nunique():,}")
-    c3.metric("Jumlah Provinsi", f"{clustered['Provinsi'].nunique():,}")
+    c1.metric("Total Observasi", f"{len(clustered):,}")
+    c2.metric("Pelabuhan Unik", f"{clustered['port'].nunique():,}")
+    c3.metric("Cakupan Provinsi", f"{clustered['Provinsi'].nunique():,}")
     c4.metric("Jumlah Klaster (K)", str(result["modeling"]["config"]["n_clusters"]))
 
     left, right = st.columns([1.2, 1])
@@ -140,17 +140,18 @@ def _render_summary(result: dict) -> None:
     with right:
         st.plotly_chart(cluster_pie(struct), width="stretch")
 
-    st.subheader("Tabel Ukuran dan Proporsi Klaster")
+    st.subheader("Tabel Ukuran dan Proporsi Tiap Klaster")
     display = struct.rename(
         columns={
             "Cluster": "Klaster",
             "jumlah_kombinasi_Port_SITC": "Jumlah Observasi",
             "jumlah_pelabuhan_unik": "Pelabuhan Unik",
             "jumlah_provinsi": "Provinsi",
-            "persentase_dataset": "Persentase (%)",
+            "persentase_dataset": "Proporsi (%)",
         }
     )
     st.dataframe(display, width="stretch", hide_index=True)
+
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +164,17 @@ def _render_profile(result: dict) -> None:
     categorical_cols = result["modeling"]["categorical_cols"]
     struct = _cluster_structure(clustered)
 
-    st.subheader("Jumlah dan Persentase Observasi per Klaster")
+    st.subheader("Distribusi Jumlah dan Proporsi Observasi per Klaster")
     overview = struct[["Cluster", "jumlah_kombinasi_Port_SITC", "persentase_dataset"]].rename(
         columns={
             "Cluster": "Klaster",
             "jumlah_kombinasi_Port_SITC": "Jumlah Observasi",
-            "persentase_dataset": "Persentase (%)",
+            "persentase_dataset": "Proporsi (%)",
         }
     )
     st.dataframe(overview, width="stretch", hide_index=True)
 
-    st.subheader("Statistik Fitur Numerik per Klaster (satuan asli)")
+    st.subheader("Statistik Fitur Numerik per Klaster")
     rows = []
     for cluster_id, group in clustered.groupby("Cluster", sort=True):
         for feature in numerical_cols:
@@ -201,14 +202,14 @@ def _render_profile(result: dict) -> None:
         mode_rows.append(row)
     st.dataframe(pd.DataFrame(mode_rows), width="stretch", hide_index=True)
 
-    st.subheader("Distribusi SITC per Klaster")
+    st.subheader("Distribusi Kategori SITC per Klaster")
     sitc_pct = pd.crosstab(clustered["Cluster"], clustered["sitc"], normalize="index").mul(100)
     sitc_pct = sitc_pct.reindex(sorted(sitc_pct.columns), axis=1).round(2)
     sitc_display = sitc_pct.reset_index().rename(columns={"Cluster": "Klaster"})
     st.dataframe(sitc_display, width="stretch", hide_index=True)
     st.plotly_chart(sitc_stacked_bar(sitc_pct), width="stretch")
 
-    st.subheader("Distribusi Provinsi (5 teratas per klaster)")
+    st.subheader("Distribusi Wilayah Provinsi (5 Teratas per Klaster)")
     province_counts = (
         clustered.groupby(["Cluster", "Provinsi"])
         .size()
@@ -222,13 +223,15 @@ def _render_profile(result: dict) -> None:
     )
     st.dataframe(top_prov, width="stretch", hide_index=True)
 
-    st.subheader("Boxplot Fitur Numerik")
+    st.subheader("Perbandingan Nilai Rata-Rata Fitur Numerik")
     st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
-    st.caption("Grafik batang rata-rata fitur numerik dalam satuan asli.")
+    st.caption("Diagram batang perbandingan rata-rata fitur numerik dalam skala satuan asli.")
 
     from src.visualization import numeric_boxplots
 
+    st.subheader("Distribusi Sebaran Fitur Numerik (Boxplot)")
     st.plotly_chart(numeric_boxplots(clustered, numerical_cols), width="stretch")
+    st.caption("Diagram sebaran (boxplot) untuk mengamati rentang, kuartil, dan variasi data numerik tiap klaster.")
 
     st.subheader("Heatmap Profil Klaster Terstandardisasi")
     cluster_means = clustered.groupby("Cluster", sort=True)[numerical_cols].mean()
@@ -240,34 +243,34 @@ def _render_profile(result: dict) -> None:
         .fillna(0)
     )
     st.plotly_chart(cluster_z_heatmap(z_profile), width="stretch")
-    st.caption("Nilai Z-score relatif terhadap keseluruhan data (digunakan hanya untuk perbandingan).")
+    st.caption("Nilai Z-score fitur numerik relatif terhadap keseluruhan data (digunakan untuk perbandingan pola antar klaster).")
 
     _render_shap_section(result)
 
 
 def _render_shap_section(result: dict) -> None:
-    st.subheader("Analisis SHAP (Penjelasan Surrogate)")
+    st.subheader("Analisis SHAP (Interpretasi Model Surrogate)")
     st.caption(
-        "SHAP menjelaskan prediksi model surrogate Random Forest, bukan mekanisme internal "
-        "K-Prototypes."
+        "Analisis SHAP menjelaskan kontribusi fitur terhadap prediksi model surrogate Random Forest "
+        "dalam mereplikasi pola klaster K-Prototypes."
     )
     shap_result = result["modeling"]["shap"]
     if not shap_result.get("available"):
         st.warning(
-            "SHAP tidak dapat ditampilkan. Alasan: "
-            + str(shap_result.get("reason", "prasyarat tidak terpenuhi"))
+            "Visualisasi SHAP tidak dapat ditampilkan. Alasan: "
+            + str(shap_result.get("reason", "prasyarat data tidak terpenuhi"))
         )
         return
 
-    st.markdown("**Global Feature Importance**")
+    st.markdown("**Tingkat Kepentingan Fitur Global (Global Feature Importance)**")
     st.plotly_chart(global_shap_bar(shap_result["global_importance"]), width="stretch")
 
-    st.markdown("**Kontribusi Fitur per Klaster**")
+    st.markdown("**Pola Kontribusi Fitur per Klaster**")
     st.plotly_chart(
         shap_cluster_heatmap(shap_result["importance_per_cluster"]), width="stretch"
     )
 
-    st.markdown("**Beeswarm per Klaster**")
+    st.markdown("**Distribusi Pengaruh Fitur (Beeswarm Plot per Klaster)**")
     classes = shap_result["classes"]
     features = result["modeling"]["X_model"].loc[
         shap_result["X_eval"].index, result["modeling"]["feature_cols"]
@@ -278,14 +281,15 @@ def _render_shap_section(result: dict) -> None:
             grouped_values = shap_result["grouped_by_cluster"][int(cluster_id)]
             try:
                 fig = shap_beeswarm_figure(
-                    grouped_values.to_numpy(), features, f"SHAP Beeswarm â€” Cluster {cluster_id}"
+                    grouped_values.to_numpy(), features, f"SHAP Beeswarm — Cluster {cluster_id}"
                 )
                 st.pyplot(fig, width="stretch")
                 import matplotlib.pyplot as plt
 
                 plt.close(fig)
             except Exception as exc:  # noqa: BLE001
-                st.warning(f"Beeswarm untuk Cluster {cluster_id} tidak dapat dibuat: {exc}")
+                st.warning(f"Visualisasi Beeswarm untuk Cluster {cluster_id} tidak dapat dibuat: {exc}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -299,33 +303,34 @@ def _render_evaluation(result: dict) -> None:
     silhouette = modeling["silhouette"]
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("K Terpilih", str(k))
-    c2.metric("Silhouette (campuran)", _fmt(silhouette))
-    c3.metric("Observasi Silhouette", f"{modeling['silhouette_n']:,}")
-    c4.metric("Gamma K-Prototypes", _fmt(modeling["gamma"]))
+    c1.metric("Klaster Terpilih (K)", str(k))
+    c2.metric("Skor Silhouette (Campuran)", _fmt(silhouette))
+    c3.metric("Ukuran Sampel Evaluasi", f"{modeling['silhouette_n']:,}")
+    c4.metric("Koefisien Penyeimbang (Gamma)", _fmt(modeling["gamma"]))
 
-    st.subheader("Elbow Method (Cost K-Prototypes)")
+    st.subheader("Metode Elbow (Nilai Cost K-Prototypes)")
     st.plotly_chart(elbow_line(elbow, k), width="stretch")
     st.dataframe(
-        elbow.rename(columns={"K": "K", "Cost": "Cost"}).round(4),
+        elbow.rename(columns={"K": "Jumlah Klaster (K)", "Cost": "Total Cost"}).round(4),
         width="stretch",
         hide_index=True,
     )
 
-    st.subheader("Silhouette Campuran")
+    st.subheader("Evaluasi Kohesi & Separasi (Silhouette Campuran)")
     st.write(
-        "Silhouette dihitung dengan dissimilarity campuran K-Prototypes: kuadrat selisih fitur "
-        "numerik terstandardisasi ditambah gamma dikali jumlah ketidakcocokan kategorikal."
+        "Skor Silhouette dihitung menggunakan metrik ketidaksamaan (dissimilarity) campuran K-Prototypes: "
+        "penjumlahan kuadrat selisih fitur numerik terstandardisasi dengan penalti ketidakcocokan kategori "
+        "yang dibobotkan oleh parameter gamma."
     )
     if pd.isna(silhouette):
-        st.warning("Silhouette tidak dapat dihitung untuk konfigurasi ini.")
+        st.warning("Skor Silhouette tidak dapat dihitung untuk konfigurasi data ini.")
     else:
         st.info(
-            f"Silhouette = {silhouette:.4f}, dihitung pada {modeling['silhouette_n']:,} observasi "
-            + ("(sampel deterministik, random_state=42)." if modeling["silhouette_n"] < len(modeling["clustered"]) else "(seluruh data).")
+            f"Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
+            + ("(penarikan sampel deterministik, random_state=42)." if modeling["silhouette_n"] < len(modeling["clustered"]) else "(seluruh data).")
         )
 
-    st.subheader("Konfigurasi K-Prototypes")
+    st.subheader("Parameter Konfigurasi Algoritma K-Prototypes")
     config = modeling["config"]
     st.dataframe(
         pd.DataFrame(
@@ -345,31 +350,31 @@ def _render_evaluation(result: dict) -> None:
         hide_index=True,
     )
 
-    st.subheader("Evaluasi Surrogate Random Forest")
+    st.subheader("Evaluasi Performa Model Surrogate (Random Forest)")
     surrogate = modeling["surrogate"]
     st.dataframe(
         surrogate["metrics"].round(4), width="stretch", hide_index=True
     )
     st.caption(
-        "Metrik ini mengukur fidelity surrogate dalam mereproduksi label klaster, bukan "
-        "validasi independen kualitas klaster."
+        "Metrik performa ini mengukur tingkat kesesuaian (fidelity) model surrogate Random Forest "
+        "dalam mereproduksi label klaster K-Prototypes, sebagai landasan validitas analisis penjelasan SHAP."
     )
 
     report = surrogate["classification_report"]
     report_df = pd.DataFrame(report).transpose()
     report_df = report_df[report_df.index.map(lambda x: x not in {"accuracy", "macro avg", "weighted avg"})]
     report_df.index = [f"Cluster {i}" for i in report_df.index]
-    st.markdown("**Classification Report per Klaster**")
+    st.markdown("**Laporan Klasifikasi per Klaster (Classification Report)**")
     st.dataframe(report_df.round(4), width="stretch")
 
-    st.markdown("**Confusion Matrix**")
+    st.markdown("**Matriks Konfusi (Confusion Matrix)**")
     st.plotly_chart(
         confusion_heatmap(surrogate["confusion_matrix"], surrogate["class_labels"]),
         width="stretch",
     )
 
     st.download_button(
-        "Unduh metrik evaluasi (CSV)",
+        "Unduh Metrik Evaluasi Surrogate (CSV)",
         data=surrogate["metrics"].to_csv(index=False).encode("utf-8-sig"),
         file_name="evaluasi_surrogate.csv",
         mime="text/csv",
@@ -394,17 +399,17 @@ def _render_map(result: dict) -> None:
 
     if not lat_col or not lon_col:
         st.info(
-            "Dataset yang digunakan tidak menyediakan kolom koordinat latitude dan longitude. "
-            "Peta tidak dibuat agar tidak menampilkan lokasi yang tidak terverifikasi."
+            "Dataset input saat ini belum memuat kolom koordinat latitude dan longitude pelabuhan. "
+            "Visualisasi peta dinonaktifkan untuk menjaga keakuratan informasi geografis."
         )
         st.markdown(
-            "**Kolom yang dibutuhkan untuk mengaktifkan peta:**\n"
+            "**Persyaratan kolom untuk mengaktifkan visualisasi peta:**\n"
             "- `latitude` (atau `lat` / `lintang`)\n"
             "- `longitude` (atau `lon` / `lng` / `bujur`)\n\n"
-            "Tambahkan koordinat yang berasal dari sumber valid (misalnya tabel koordinat pelabuhan "
-            "resmi) ke dataset input, lalu jalankan ulang analisis."
+            "Sertakan data koordinat resmi pelabuhan pada berkas input, kemudian jalankan ulang "
+            "proses analisis untuk menampilkan peta interaktif."
         )
-        with st.expander("Template kode peta (untuk pengembangan berikutnya)"):
+        with st.expander("Contoh sintaks kode peta (untuk pengembangan fitur mendatang):"):
             st.code(
                 "fig = px.scatter_geo(\n"
                 "    clustered, lat='latitude', lon='longitude',\n"
@@ -415,7 +420,7 @@ def _render_map(result: dict) -> None:
                 language="python",
             )
         st.dataframe(
-            pd.DataFrame({"Kolom tersedia": list(clustered.columns)}),
+            pd.DataFrame({"Daftar Kolom pada Dataset": list(clustered.columns)}),
             width="stretch",
             hide_index=True,
         )
@@ -429,7 +434,7 @@ def _render_map(result: dict) -> None:
         map_data[lat_col].between(-90, 90) & map_data[lon_col].between(-180, 180)
     ]
     if map_data.empty:
-        st.warning("Tidak ada koordinat valid pada dataset.")
+        st.warning("Tidak ditemukan data koordinat yang valid pada dataset.")
         return
 
     from src.visualization import geo_scatter
@@ -438,7 +443,8 @@ def _render_map(result: dict) -> None:
         geo_scatter(map_data, lat_col, lon_col, "port", "Sebaran Klaster Pelabuhan"),
         width="stretch",
     )
-    st.caption(f"Menampilkan {len(map_data):,} observasi dengan koordinat valid.")
+    st.caption(f"Menampilkan {len(map_data):,} titik pelabuhan dengan koordinat valid.")
+
 
 
 # ---------------------------------------------------------------------------
@@ -446,15 +452,16 @@ def _render_map(result: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _dataset_catalog(result: dict) -> dict[str, tuple[str, pd.DataFrame]]:
+
     pre = result["preprocessing"]
     clustered = result["modeling"]["clustered"]
     return {
-        "1. Dataset input (combined_dataset)": (
+        "1. Dataset input mentah (combined_dataset)": (
             "dataset_input_combined.csv",
             pre["df_combined"],
         ),
-        "2. Hasil konversi HSâ†’SITC": ("hasil_konversi_sitc.csv", pre["df_sitc"]),
-        "3. Hasil agregasi Port Ã— SITC": (
+        "2. Hasil konversi HS ke SITC": ("hasil_konversi_sitc.csv", pre["df_sitc"]),
+        "3. Hasil agregasi Pelabuhan × SITC": (
             "hasil_agregasi_port_sitc.csv",
             pre["df_aggregated"],
         ),
@@ -462,7 +469,7 @@ def _dataset_catalog(result: dict) -> dict[str, tuple[str, pd.DataFrame]]:
             "data_gabungan_provinsi.csv",
             pre["df_finished"],
         ),
-        "5. Dataset final preprocessing": ("dataset_final_preprocessing.csv", pre["df_final"]),
+        "5. Dataset final prapemrosesan": ("dataset_final_preprocessing.csv", pre["df_final"]),
         "6. Dataset dengan label klaster": ("dataset_berlabel_klaster.csv", clustered),
     }
 
@@ -470,59 +477,59 @@ def _dataset_catalog(result: dict) -> dict[str, tuple[str, pd.DataFrame]]:
 def _render_data(result: dict) -> None:
     catalog = _dataset_catalog(result)
 
-    st.subheader("Ringkasan Tahapan Proses")
+    st.subheader("Ringkasan Tahapan Prapemrosesan")
     report = result["preprocessing"]["report"]
     conversion = report["conversion"]
     summary = {
-        "Baris impor awal": f"{report['rows_combined']:,}",
-        "HS6 tidak terbaca": f"{conversion['rows_invalid_hs6']:,}",
-        "Baris tanpa pemetaan SITC": f"{conversion['rows_unmapped']:,}",
-        "Nilai USD tanpa pemetaan": f"{conversion['usd_value_unmapped']:,.2f}",
-        "Baris setelah agregasi Port Ã— SITC": f"{report['rows_aggregated']:,}",
-        "Pelabuhan tanpa pemetaan provinsi": f"{report['province']['rows_unmapped_port']:,}",
-        "Duplikat dihapus": f"{report['cleaning']['duplicates_removed']:,}",
-        "Baris final": f"{report['rows_final']:,}",
+        "Baris data impor awal": f"{report['rows_combined']:,}",
+        "Kode HS-6 tidak terbaca/valid": f"{conversion['rows_invalid_hs6']:,}",
+        "Transaksi tanpa pemetaan SITC": f"{conversion['rows_unmapped']:,}",
+        "Nilai transaksi tanpa pemetaan (USD)": f"US$ {conversion['usd_value_unmapped']:,.2f}",
+        "Baris setelah agregasi Pelabuhan × SITC": f"{report['rows_aggregated']:,}",
+        "Pelabuhan tanpa pemetaan data provinsi": f"{report['province']['rows_unmapped_port']:,}",
+        "Baris duplikat yang dibersihkan": f"{report['cleaning']['duplicates_removed']:,}",
+        "Baris dataset final siap model": f"{report['rows_final']:,}",
     }
     st.dataframe(
         pd.DataFrame({"Tahapan": list(summary), "Nilai": list(summary.values())}),
         width="stretch",
         hide_index=True,
     )
-    with st.expander("Detail IQR capping dan imputasi median"):
+    with st.expander("Detail penanganan outlier (IQR capping) dan imputasi median:"):
         st.json({"capping": report["capping"], "median_imputed": report["cleaning"]["median_imputed"]})
 
     st.subheader("Pratinjau dan Ekspor Dataset")
-    choice = st.selectbox("Pilih dataset", list(catalog.keys()), key="data_dataset_choice")
+    choice = st.selectbox("Pilih tahapan dataset", list(catalog.keys()), key="data_dataset_choice")
     filename, df = catalog[choice]
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Baris", f"{len(df):,}")
-    c2.metric("Kolom", f"{len(df.columns):,}")
-    c3.metric("Nilai kosong", f"{int(df.isna().sum().sum()):,}")
+    c1.metric("Jumlah Baris", f"{len(df):,}")
+    c2.metric("Jumlah Kolom", f"{len(df.columns):,}")
+    c3.metric("Data Kosong (Missing)", f"{int(df.isna().sum().sum()):,}")
 
     max_rows = st.selectbox(
         "Jumlah baris ditampilkan", [25, 50, 100, 250, 500], index=1, key="data_max_rows"
     )
     st.dataframe(df.head(max_rows), width="stretch", hide_index=True)
-    st.caption(f"Menampilkan maksimal {max_rows} baris dari {len(df):,} baris.")
+    st.caption(f"Menampilkan {min(max_rows, len(df)):,} baris pertama dari total {len(df):,} baris data.")
 
     st.download_button(
-        f"Unduh dataset: {choice}",
+        f"Unduh berkas: {choice}",
         data=df.to_csv(index=False).encode("utf-8-sig"),
         file_name=filename,
         mime="text/csv",
         key="download_dataset_choice",
     )
 
-    st.subheader("Pratinjau Profil Klaster")
+    st.subheader("Pratinjau Data per Klaster")
     clustered = result["modeling"]["clustered"]
     cluster_choice = st.selectbox(
-        "Pilih klaster", sorted(clustered["Cluster"].unique()), key="data_cluster_choice"
+        "Pilih nomor klaster", sorted(clustered["Cluster"].unique()), key="data_cluster_choice"
     )
     subset = clustered[clustered["Cluster"] == cluster_choice]
     st.dataframe(subset.head(max_rows), width="stretch", hide_index=True)
     st.download_button(
-        f"Unduh observasi Cluster {cluster_choice}",
+        f"Unduh observasi Klaster {cluster_choice} (CSV)",
         data=subset.to_csv(index=False).encode("utf-8-sig"),
         file_name=f"cluster_{cluster_choice}.csv",
         mime="text/csv",
@@ -537,7 +544,7 @@ def _render_data(result: dict) -> None:
 def _render_sidebar() -> str:
     with st.sidebar:
         st.markdown(
-            "<div class='side-brand'><div class='side-brand-title'>DASHBOARD KLASTERISASI<br>IMPOR TIONGKOK</div></div>",
+            "<div class='side-brand'><div class='side-brand-title'>DASHBOARD KLASTERISASI<br>PELABUHAN IMPOR TIONGKOK</div></div>",
             unsafe_allow_html=True,
         )
         st.markdown("<div class='side-section-label'>TAMPILAN DASHBOARD</div>", unsafe_allow_html=True)
@@ -547,10 +554,10 @@ def _render_sidebar() -> str:
             key="dashboard_view",
             label_visibility="collapsed",
         )
-        if st.button("â† Kembali ke Homepage", width="stretch"):
+        if st.button("← Kembali ke Beranda", width="stretch"):
             st.switch_page("pages/1_Beranda.py")
         st.markdown(
-            "<div class='sidebar-footer-caption'>Aplikasi analitik klasterisasi</div>",
+            "<div class='sidebar-footer-caption'>Sistem Analitik Klasterisasi Pelabuhan</div>",
             unsafe_allow_html=True,
         )
     return view
@@ -564,8 +571,8 @@ def render() -> None:
     st.markdown(
         """
         <div class="app-topbar">
-          <div class="app-topbar-title">Dashboard Klasterisasi Impor Tiongkok</div>
-          <div class="app-topbar-subtitle">Analitik Â· Klasterisasi Â· Indonesia</div>
+          <div class="app-topbar-title">Dashboard Klasterisasi Pelabuhan Impor Tiongkok</div>
+          <div class="app-topbar-subtitle">Analitik · K-Prototypes · Pelabuhan Indonesia</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -591,3 +598,4 @@ def render() -> None:
 
 
 render()
+

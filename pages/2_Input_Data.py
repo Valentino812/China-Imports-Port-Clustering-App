@@ -56,7 +56,7 @@ def _store_upload(kind: str, upload) -> None:
         df = read_table(content, upload.name)
     except Exception as exc:
         st.session_state[f"{kind}_valid"] = False
-        st.session_state[f"{kind}_message"] = f"File tidak dapat dibaca: {exc}"
+        st.session_state[f"{kind}_message"] = f"Berkas tidak dapat dibaca: {exc}"
         st.session_state[f"{kind}_bytes"] = content
         st.session_state[f"{kind}_name"] = upload.name
         st.session_state[f"{kind}_df"] = None
@@ -96,9 +96,9 @@ def _ensure_reference_conversion() -> None:
     st.session_state["conversion_df"] = df
     st.session_state["conversion_valid"] = valid
     st.session_state["conversion_message"] = (
-        message + " (dimuat otomatis dari direktori referensi project)"
+        message + " (dimuat otomatis dari direktori referensi proyek)"
     )
-    st.session_state["conversion_source"] = "Direktori referensi project"
+    st.session_state["conversion_source"] = "Direktori referensi proyek"
     st.session_state["conversion_signature"] = _sha256(content)
 
 
@@ -118,17 +118,17 @@ def _file_status_row(label: str, kind: str, required_cols: list[str]) -> None:
     df = st.session_state.get(f"{kind}_df")
 
     if df is None:
-        st.markdown(f"**{label}** â€” <span class='file-missing'>belum tersedia</span>", unsafe_allow_html=True)
+        st.markdown(f"**{label}** — <span class='file-missing'>belum diunggah</span>", unsafe_allow_html=True)
     elif valid:
         st.markdown(
-            f"**{label}** â€” <span class='file-ok'>valid</span> Â· `{name}` Â· {len(df):,} baris Ã— "
+            f"**{label}** — <span class='file-ok'>valid</span> · `{name}` · {len(df):,} baris × "
             f"{len(df.columns)} kolom",
             unsafe_allow_html=True,
         )
         st.caption("Kolom wajib: " + ", ".join(required_cols))
     else:
         st.markdown(
-            f"**{label}** â€” <span class='file-missing'>tidak valid</span> Â· `{name}`",
+            f"**{label}** — <span class='file-missing'>tidak valid</span> · `{name}`",
             unsafe_allow_html=True,
         )
     if message:
@@ -137,48 +137,49 @@ def _file_status_row(label: str, kind: str, required_cols: list[str]) -> None:
 
 def _render_summary(pre_report: dict, model_result: dict) -> None:
     clustered = model_result["clustered"]
-    st.subheader("Ringkasan Hasil")
+    st.subheader("Ringkasan Hasil Pemodelan")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Baris final", f"{pre_report['rows_final']:,}")
-    c2.metric("Pelabuhan unik", f"{clustered['port'].nunique():,}")
-    c3.metric("Provinsi", f"{clustered['Provinsi'].nunique():,}")
-    c4.metric("Jumlah klaster", str(model_result["config"]["n_clusters"]))
+    c1.metric("Observasi Final", f"{pre_report['rows_final']:,}")
+    c2.metric("Pelabuhan Unik", f"{clustered['port'].nunique():,}")
+    c3.metric("Cakupan Provinsi", f"{clustered['Provinsi'].nunique():,}")
+    c4.metric("Jumlah Klaster (K)", str(model_result["config"]["n_clusters"]))
 
     sizes = (
         clustered["Cluster"].value_counts().sort_index()
         .rename_axis("Cluster").reset_index(name="Jumlah")
     )
     sizes["Persentase"] = (sizes["Jumlah"] / len(clustered) * 100).round(1).astype(str) + "%"
+    sizes = sizes.rename(columns={"Cluster": "Klaster", "Jumlah": "Jumlah Observasi", "Persentase": "Proporsi"})
     st.dataframe(sizes, width="stretch", hide_index=True)
 
     sil = model_result["silhouette"]
     sil_txt = "N/A" if pd.isna(sil) else f"{sil:.4f}"
     st.caption(
-        f"Silhouette campuran: {sil_txt} pada {model_result['silhouette_n']:,} observasi Â· "
-        f"Surrogate fidelity: "
-        f"{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f} Â· "
-        f"SHAP: {'tersedia' if model_result['shap'].get('available') else 'tidak tersedia'}"
+        f"Skor Silhouette campuran: {sil_txt} pada {model_result['silhouette_n']:,} observasi · "
+        f"Fidelity surrogate: "
+        f"{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f} · "
+        f"Analisis SHAP: {'Tersedia' if model_result['shap'].get('available') else 'Tidak tersedia'}"
     )
 
-    with st.expander("Ringkasan tahapan preprocessing"):
+    with st.expander("Detail Ringkasan Tahapan Prapemrosesan"):
         conversion = pre_report["conversion"]
         st.markdown(
-            f"- Baris impor awal: **{pre_report['rows_combined']:,}**\n"
-            f"- HS6 tidak terbaca: **{conversion['rows_invalid_hs6']:,}**\n"
-            f"- Baris tanpa pemetaan SITC: **{conversion['rows_unmapped']:,}** "
-            f"(nilai USD {conversion['usd_value_unmapped']:,.2f})\n"
-            f"- Baris setelah agregasi Port Ã— SITC: **{pre_report['rows_aggregated']:,}**\n"
-            f"- Pelabuhan tanpa pemetaan provinsi: **{pre_report['province']['rows_unmapped_port']:,}**\n"
-            f"- Duplikat dihapus: **{pre_report['cleaning']['duplicates_removed']:,}**\n"
-            f"- IQR capping `usd_value` (per SITC): **{pre_report['capping']['usd_value']:,}** baris"
+            f"- Baris data impor awal: **{pre_report['rows_combined']:,}**\n"
+            f"- Kode HS-6 tidak terbaca/valid: **{conversion['rows_invalid_hs6']:,}**\n"
+            f"- Transaksi tanpa pemetaan SITC: **{conversion['rows_unmapped']:,}** "
+            f"(nilai transaksi: US$ {conversion['usd_value_unmapped']:,.2f})\n"
+            f"- Baris setelah agregasi Pelabuhan × SITC: **{pre_report['rows_aggregated']:,}**\n"
+            f"- Pelabuhan tanpa pemetaan data provinsi: **{pre_report['province']['rows_unmapped_port']:,}**\n"
+            f"- Baris duplikat yang dibersihkan: **{pre_report['cleaning']['duplicates_removed']:,}**\n"
+            f"- Pembatasan outlier (IQR Capping) pada `usd_value` per SITC: **{pre_report['capping']['usd_value']:,}** baris"
         )
 
 
 def render() -> None:
-    st.title("Input Data")
+    st.title("Input Data & Konfigurasi")
     st.write(
-        "Unggah tiga file wajib di bawah ini. Preprocessing tidak akan dijalankan sebelum "
-        "ketiganya tersedia dan tervalidasi."
+        "Unggah ketiga berkas data persyaratan di bawah ini. Tahapan prapemrosesan dan pemodelan "
+        "akan siap dijalankan setelah seluruh berkas terverifikasi valid."
     )
 
     _ensure_reference_conversion()
@@ -186,7 +187,7 @@ def render() -> None:
     # ------------------------------------------------------------------
     # Uploads
     # ------------------------------------------------------------------
-    st.subheader("1 Â· File Input Wajib")
+    st.subheader("1 · Berkas Data Input Wajib")
     up1, up2, up3 = st.columns(3)
     with up1:
         combined_upload = st.file_uploader(
@@ -200,14 +201,14 @@ def render() -> None:
             "provinces_data.csv",
             type=["csv", "xlsx"],
             key="upload_provinces",
-            help="Indikator provinsi: Provinsi, pdrb, china_investment_us_ribu, micro_small_industries.",
+            help="Indikator makro provinsi: Provinsi, pdrb, china_investment_us_ribu, micro_small_industries.",
         )
     with up3:
         conversion_upload = st.file_uploader(
             "HS2022toSITC4ConversionAndCorrelationTables.xlsx",
             type=["xlsx", "csv"],
             key="upload_conversion",
-            help="Tabel konversi HS 2022 ke SITC Rev. 4 (From HS 2022, To SITC Rev. 4).",
+            help="Tabel korespondensi konversi HS 2022 ke SITC Rev. 4 (From HS 2022, To SITC Rev. 4).",
         )
 
     if combined_upload is not None:
@@ -217,13 +218,13 @@ def render() -> None:
     if conversion_upload is not None:
         _store_upload("conversion", conversion_upload)
 
-    st.markdown("##### Status file")
+    st.markdown("##### Status Verifikasi Berkas")
     status_left, status_right = st.columns(2)
     with status_left:
-        _file_status_row("Data impor (combined_dataset)", "combined", COMBINED_REQUIRED)
-        _file_status_row("Data provinsi (provinces_data)", "provinces", PROVINCES_REQUIRED)
+        _file_status_row("Data Impor (combined_dataset)", "combined", COMBINED_REQUIRED)
+        _file_status_row("Data Provinsi (provinces_data)", "provinces", PROVINCES_REQUIRED)
     with status_right:
-        _file_status_row("Tabel konversi HSâ€“SITC", "conversion", CONVERSION_REQUIRED)
+        _file_status_row("Tabel Konversi HS–SITC", "conversion", CONVERSION_REQUIRED)
         source = st.session_state.get("conversion_source")
         if source:
             st.caption(f"Sumber tabel konversi: {source}.")
@@ -237,19 +238,19 @@ def render() -> None:
     # ------------------------------------------------------------------
     # Configuration + process
     # ------------------------------------------------------------------
-    st.subheader("2 Â· Konfigurasi Klasterisasi")
+    st.subheader("2 · Parameter & Konfigurasi Klasterisasi")
     st.slider(
-        "Jumlah klaster K",
+        "Jumlah klaster (K)",
         min_value=2,
         max_value=7,
         value=int(st.session_state.get("n_clusters", 4)),
         step=1,
         key="n_clusters",
-        help="Nilai awal K = 4 sesuai notebook. Rentang valid 2â€“7.",
+        help="Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–7.",
     )
     st.caption(
-        "Fitur model: `sitc` (kategorikal) dan `usd_value`, `pdrb`, `china_investment_us_ribu`, "
-        "`micro_small_industries` (numerik). `port` dan `Provinsi` hanya sebagai metadata."
+        "Fitur input model: `sitc` (kategorikal) serta `usd_value`, `pdrb`, `china_investment_us_ribu`, "
+        "dan `micro_small_industries` (numerik). Kolom `port` dan `Provinsi` difungsikan sebagai metadata."
     )
 
     missing = [
@@ -262,7 +263,7 @@ def render() -> None:
         if not st.session_state.get(f"{kind}_valid")
     ]
     if missing:
-        st.warning("File berikut belum tersedia/valid: " + ", ".join(missing) + ".")
+        st.warning("Berkas berikut belum tersedia atau belum valid: " + ", ".join(missing) + ". Silakan periksa kembali berkas yang diunggah.")
 
     process_clicked = st.button(
         "Proses Data dan Jalankan Analisis",
@@ -276,18 +277,18 @@ def render() -> None:
     if process_clicked and all_valid:
         st.session_state["processing_error"] = None
         st.session_state["analysis_result"] = None
-        progress = st.progress(0, text="Memulai pipeline...")
+        progress = st.progress(0, text="Menginisialisasi pipeline analisis...")
         try:
-            with st.status("Menjalankan preprocessing dan pemodelan...", expanded=True) as status:
-                st.write("1/2 Â· Preprocessing: konversi HSâ€“SITC, agregasi, pemetaan provinsi, IQR capping.")
+            with st.status("Menjalankan prapemrosesan dan pemodelan klaster...", expanded=True) as status:
+                st.write("1/2 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi, dan IQR capping.")
                 pre_result = run_preprocessing(
                     align_columns(st.session_state["combined_df"], COMBINED_REQUIRED),
                     align_columns(st.session_state["provinces_df"], PROVINCES_REQUIRED),
                     align_columns(st.session_state["conversion_df"], CONVERSION_REQUIRED),
                 )
-                progress.progress(0.35, text="Preprocessing selesai.")
+                progress.progress(0.35, text="Tahap prapemrosesan data selesai.")
 
-                st.write("2/2 Â· Pemodelan: K-Prototypes, Elbow, Silhouette, surrogate, SHAP.")
+                st.write("2/2 · Pemodelan: K-Prototypes, evaluasi Elbow & Silhouette, model surrogate, dan analisis SHAP.")
 
                 def _cb(fraction: float, text: str) -> None:
                     progress.progress(min(0.35 + 0.65 * fraction, 1.0), text=text)
@@ -297,7 +298,7 @@ def render() -> None:
                     n_clusters=int(st.session_state["n_clusters"]),
                     progress_callback=_cb,
                 )
-                status.update(label="Pipeline selesai.", state="complete")
+                status.update(label="Seluruh proses pipeline berhasil diselesaikan.", state="complete")
 
             st.session_state["analysis_result"] = {
                 "preprocessing": pre_result,
@@ -305,14 +306,14 @@ def render() -> None:
             }
             st.session_state["analysis_signature"] = current_signature
             st.session_state["pipeline_summary"] = pre_result["report"]
-            progress.progress(1.0, text="Selesai.")
+            progress.progress(1.0, text="Pipeline selesai.")
         except Exception as exc:  # noqa: BLE001 - surface any pipeline failure
             st.session_state["processing_error"] = str(exc)
             st.session_state["analysis_result"] = None
             st.session_state["analysis_signature"] = None
 
     if st.session_state.get("processing_error"):
-        st.error(f"Proses belum berhasil: {st.session_state['processing_error']}")
+        st.error(f"Proses belum berhasil dijalankan: {st.session_state['processing_error']}")
 
     # ------------------------------------------------------------------
     # Results availability
@@ -323,19 +324,20 @@ def render() -> None:
 
     if result is not None and not is_current:
         st.warning(
-            "Data atau konfigurasi K berubah. Hasil analisis sebelumnya dibatalkan dan perlu "
-            "diproses ulang."
+            "Terdeteksi perubahan data input atau nilai parameter K. Hasil analisis sebelumnya tidak lagi "
+            "sesuai dan perlu diproses ulang."
         )
 
     if is_current:
-        st.success("Preprocessing dan pemodelan berhasil. Hasil siap ditinjau.")
+        st.success("Prapemrosesan dan pemodelan berhasil diselesaikan! Hasil analisis siap untuk ditinjau.")
         _render_summary(result["preprocessing"]["report"], result["modeling"])
-        if st.button("Lihat Hasil Analisis  â†’", type="primary", width="stretch"):
+        if st.button("Lihat Hasil Analisis di Dashboard →", type="primary", width="stretch"):
             st.switch_page("pages/3_Dashboard.py")
 
     st.divider()
-    if st.button("â† Kembali ke Beranda"):
+    if st.button("← Kembali ke Beranda"):
         st.switch_page("pages/1_Beranda.py")
 
 
 render()
+

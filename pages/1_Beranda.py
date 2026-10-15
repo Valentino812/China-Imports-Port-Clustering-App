@@ -18,13 +18,15 @@ def render() -> None:
     st.markdown(
         """
         <section class="hero-panel">
-          <div class="hero-eyebrow">PORT &amp; IMPORT CLUSTERING ANALYTICS</div>
-          <div class="hero-title">Analisis Klasterisasi Pelabuhan Indonesia Berdasarkan Impor dari Tiongkok</div>
+          <div class="hero-eyebrow">ANALISIS KLASTERING PELABUHAN DAN KELOMPOK KOMODITAS IMPOR TIONGKOK</div>
+          <div class="hero-title">PENGELOMPOKAN KOMBINASI PELABUHAN DAN KELOMPOK KOMODITAS DI INDONESIA BERDASARKAN KARAKTERISTIK IMPOR TIONGKOK SERTA INDIKATOR MAKROEKONOMI</div>
           <div class="hero-copy">
-            Aplikasi ini mengelompokkan pelabuhan Indonesia berdasarkan karakteristik impor dari
-            Tiongkok dan indikator makroekonomi provinsi. Proses mencakup konversi HS 2022 ke
-            SITC Rev. 4, pemodelan K-Prototypes, evaluasi campuran, serta penjelasan SHAP atas
-            model surrogate.
+            Aplikasi analitik pemetaan dan pengelompokan (klasterisasi) kombinasi pelabuhan dan kelompok komoditas di 
+            Indonesia berdasarkan karakteristik aktivitas impor dari Tiongkok serta kondisi makroekonomi dari masing-masing 
+            wilayah. Sistem yang dikembangkan adalah dashboard analitik berbasis web yang memungkinkan pengguna memperoleh 
+            gambaran terhadap karakteristik, pola, dan perbedaan antarwilayah melalui visualisasi hasil klasterisasi yang 
+            interaktif. Selain menghasilkan pemetaan wilayah, sistem juga mendukung proses identifikasi profil setiap kelompok 
+            secara objektif dan terukur berdasarkan sejumlah indikator ekonomi dan logistik yang digunakan dalam analisis.
           </div>
         </section>
         """,
@@ -36,9 +38,9 @@ def render() -> None:
         st.markdown(
             """
             <div class="section-card">
-              <h4>01 Â· Input Data</h4>
-              <p>Unggah tiga file wajib: data impor, data provinsi, dan tabel konversi HSâ€“SITC,
-              lalu tentukan jumlah klaster.</p>
+              <h4>01 · Input Data</h4>
+              <p>Unggah tiga berkas data wajib: data transaksi impor, data makro provinsi, dan tabel konversi HS–SITC,
+              lalu tentukan jumlah klaster yang diinginkan.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -47,9 +49,9 @@ def render() -> None:
         st.markdown(
             """
             <div class="section-card">
-              <h4>02 Â· Proses Klasterisasi</h4>
-              <p>Preprocessing, K-Prototypes, Elbow Method, Silhouette campuran, surrogate
-              Random Forest, dan SHAP dijalankan secara berurutan.</p>
+              <h4>02 · Proses Klasterisasi</h4>
+              <p>Prapemrosesan otomatis, pemodelan K-Prototypes, evaluasi Elbow &amp; Silhouette campuran, hingga
+              pelatihan model surrogate Random Forest dan analisis SHAP.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -58,9 +60,9 @@ def render() -> None:
         st.markdown(
             """
             <div class="section-card">
-              <h4>03 Â· Analisis Hasil</h4>
-              <p>Jelajahi Ringkasan, Profil Klaster, Evaluasi, Peta, dan Data melalui dashboard
-              interaktif dengan sidebar konsisten.</p>
+              <h4>03 · Eksplorasi Hasil</h4>
+              <p>Telaah wawasan mendalam melalui menu Ringkasan, Profil Klaster, Evaluasi Model, Distribusi Spasial,
+              dan Unduhan Data pada dashboard interaktif.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -69,12 +71,13 @@ def render() -> None:
     st.divider()
     _spacer_left, center, _spacer_right = st.columns([1, 1.4, 1])
     with center:
-        if st.button("Mulai Analisis  â†’", type="primary", width="stretch"):
+        if st.button("Mulai Analisis →", type="primary", width="stretch"):
             st.switch_page("pages/2_Input_Data.py")
     st.caption(
-        "Aplikasi ini tidak menjalankan preprocessing, pemodelan, atau evaluasi ketika halaman "
-        "ini dibuka. Hasil analisis hanya dibuat pada halaman Input Data."
+        "Aplikasi dirancang modular: pemrosesan data, validasi, dan komputasi pemodelan dilakukan "
+        "secara komprehensif pada halaman Input Data."
     )
 
 
 render()
+
