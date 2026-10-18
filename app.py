@@ -23,11 +23,11 @@ st.set_page_config(
 # Session defaults
 # ---------------------------------------------------------------------------
 _DEFAULTS = {
-    "combined_bytes": None,
-    "combined_name": None,
-    "combined_df": None,
-    "combined_valid": False,
-    "combined_message": None,
+    "imports_bytes": None,
+    "imports_name": None,
+    "imports_df": None,
+    "imports_valid": False,
+    "imports_message": None,
     "provinces_bytes": None,
     "provinces_name": None,
     "provinces_df": None,
@@ -38,7 +38,6 @@ _DEFAULTS = {
     "conversion_df": None,
     "conversion_valid": False,
     "conversion_message": None,
-    "conversion_source": None,
     "n_clusters": 4,
     "analysis_result": None,
     "analysis_signature": None,

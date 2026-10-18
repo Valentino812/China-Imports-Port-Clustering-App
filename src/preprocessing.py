@@ -2,7 +2,7 @@
 
 The functions here are a Python translation of ``process_datasets.ipynb`` and
 ``process_provinces.ipynb``. They accept the four mandatory inputs
-(``combined_dataset.csv``, ``provinces_data.csv`` and the HS 2022 -> SITC Rev. 4
+(``port_imports.csv``, ``provinces_data.csv`` and the HS 2022 -> SITC Rev. 4
 conversion table, plus ``port_geolocation.csv``) and produce the raw-scale
 dataset that is used for descriptive cluster profiling.
 
@@ -35,7 +35,7 @@ import pandas as pd
 # Schema constants
 # ---------------------------------------------------------------------------
 
-COMBINED_REQUIRED = ["port", "hs_code", "usd_value"]
+IMPORTS_REQUIRED = ["port", "hs_code", "usd_value"]
 PROVINCES_REQUIRED = [
     "Provinsi",
     "pdrb",
@@ -381,14 +381,14 @@ def build_hs_sitc_mapping(conversion_df: pd.DataFrame) -> tuple[pd.DataFrame, di
 
 
 def convert_hs_to_sitc(
-    combined_df: pd.DataFrame, mapping: pd.DataFrame
+    imports_df: pd.DataFrame, mapping: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Join combined imports with the SITC mapping and report unmapped rows."""
-    valid, message = validate_columns(combined_df, COMBINED_REQUIRED, "combined_dataset")
+    """Join port imports with the SITC mapping and report unmapped rows."""
+    valid, message = validate_columns(imports_df, IMPORTS_REQUIRED, "port_imports")
     if not valid:
         raise ValueError(message)
 
-    df = align_columns(combined_df, COMBINED_REQUIRED).copy()
+    df = align_columns(imports_df, IMPORTS_REQUIRED).copy()
     df["usd_value"] = pd.to_numeric(df["usd_value"], errors="coerce")
     df["hs6"] = extract_hs6(df["hs_code"])
 
@@ -635,18 +635,18 @@ def apply_iqr_capping(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def run_preprocessing(
-    combined_df: pd.DataFrame,
+    imports_df: pd.DataFrame,
     provinces_df: pd.DataFrame,
     conversion_df: pd.DataFrame,
     geolocation_df: pd.DataFrame,
 ) -> dict[str, Any]:
     """Run the complete preprocessing chain and return frames plus a report."""
     mapping, conversion_diag = build_hs_sitc_mapping(conversion_df)
-    df_sitc, conversion_report = convert_hs_to_sitc(combined_df, mapping)
+    df_sitc, conversion_report = convert_hs_to_sitc(imports_df, mapping)
     if df_sitc.empty:
         raise ValueError(
             "Tidak ada baris impor yang berhasil dipetakan ke SITC. Periksa tabel konversi "
-            "dan kolom hs_code pada combined_dataset."
+            "dan kolom hs_code pada port_imports."
         )
 
     df_aggregated = aggregate_sitc_first_digit(df_sitc)
@@ -679,7 +679,7 @@ def run_preprocessing(
     )
 
     report: dict[str, Any] = {
-        "rows_combined": int(len(combined_df)),
+        "rows_imports": int(len(imports_df)),
         "conversion": {**conversion_diag, **conversion_report},
         "rows_aggregated": int(len(df_aggregated)),
         "province": province_report,
@@ -696,7 +696,7 @@ def run_preprocessing(
     }
 
     return {
-        "df_combined": align_columns(combined_df, COMBINED_REQUIRED).copy(),
+        "df_imports": align_columns(imports_df, IMPORTS_REQUIRED).copy(),
         "mapping": mapping,
         "df_sitc": df_sitc,
         "df_aggregated": df_aggregated,

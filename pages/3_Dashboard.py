@@ -530,9 +530,9 @@ def _dataset_catalog(result: dict) -> dict[str, tuple[str, pd.DataFrame]]:
     pre = result["preprocessing"]
     clustered = result["modeling"]["clustered"]
     return {
-        "1. Dataset input mentah (combined_dataset)": (
-            "dataset_input_combined.csv",
-            pre["df_combined"],
+        "1. Dataset input mentah (port_imports)": (
+            "dataset_input_port_imports.csv",
+            pre["df_imports"],
         ),
         "2. Hasil konversi HS ke SITC": ("hasil_konversi_sitc.csv", pre["df_sitc"]),
         "3. Hasil agregasi Pelabuhan × SITC": (
@@ -555,7 +555,7 @@ def _render_data(result: dict) -> None:
     report = result["preprocessing"]["report"]
     conversion = report["conversion"]
     summary = {
-        "Baris data impor awal": f"{report['rows_combined']:,}",
+        "Baris data impor awal": f"{report['rows_imports']:,}",
         "Kode HS-6 tidak terbaca/valid": f"{conversion['rows_invalid_hs6']:,}",
         "Transaksi tanpa pemetaan SITC": f"{conversion['rows_unmapped']:,}",
         "Nilai transaksi tanpa pemetaan (USD)": f"US$ {conversion['usd_value_unmapped']:,.2f}",

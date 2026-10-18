@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import sys
-from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,33 +13,15 @@ import streamlit as st
 
 from src.modeling import run_modeling
 from src.preprocessing import (
-    COMBINED_REQUIRED,
     CONVERSION_REQUIRED,
     GEOLOCATION_REQUIRED,
+    IMPORTS_REQUIRED,
     PROVINCES_REQUIRED,
     align_columns,
     read_table,
     run_preprocessing,
     validate_columns,
 )
-
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-REFERENCE_CONVERSION = (
-    PROJECT_DIR
-    / "China-Imports-Port-Clustering-Ipynb"
-    / "dataset"
-    / "HS2022toSITC4ConversionAndCorrelationTables.xlsx"
-)
-
-
-@st.cache_data(show_spinner=False)
-def _load_reference_conversion(path_str: str):
-    path = Path(path_str)
-    if not path.exists():
-        return None, None
-    content = path.read_bytes()
-    df = pd.read_excel(BytesIO(content), dtype=str)
-    return content, df
 
 
 def _sha256(content: bytes) -> str:
@@ -67,7 +48,7 @@ def _store_upload(kind: str, upload) -> None:
         return
 
     required = {
-        "combined": COMBINED_REQUIRED,
+        "imports": IMPORTS_REQUIRED,
         "provinces": PROVINCES_REQUIRED,
         "conversion": CONVERSION_REQUIRED,
         "geolocation": GEOLOCATION_REQUIRED,
@@ -79,34 +60,14 @@ def _store_upload(kind: str, upload) -> None:
     st.session_state[f"{kind}_valid"] = valid
     st.session_state[f"{kind}_message"] = message
     st.session_state[key] = signature
-    if kind == "conversion":
-        st.session_state["conversion_source"] = "Unggahan pengguna"
     # Data berubah: hasil lama tidak lagi relevan.
     st.session_state["analysis_result"] = None
     st.session_state["analysis_signature"] = None
 
 
-def _ensure_reference_conversion() -> None:
-    if st.session_state.get("conversion_df") is not None:
-        return
-    content, df = _load_reference_conversion(str(REFERENCE_CONVERSION))
-    if content is None or df is None:
-        return
-    valid, message = validate_columns(df, CONVERSION_REQUIRED, REFERENCE_CONVERSION.name)
-    st.session_state["conversion_bytes"] = content
-    st.session_state["conversion_name"] = REFERENCE_CONVERSION.name
-    st.session_state["conversion_df"] = df
-    st.session_state["conversion_valid"] = valid
-    st.session_state["conversion_message"] = (
-        message + " (dimuat otomatis dari direktori referensi proyek)"
-    )
-    st.session_state["conversion_source"] = "Direktori referensi proyek"
-    st.session_state["conversion_signature"] = _sha256(content)
-
-
 def _current_signature() -> tuple:
     return (
-        st.session_state.get("combined_signature"),
+        st.session_state.get("imports_signature"),
         st.session_state.get("provinces_signature"),
         st.session_state.get("conversion_signature"),
         st.session_state.get("geolocation_signature"),
@@ -167,7 +128,7 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     with st.expander("Detail Ringkasan Tahapan Prapemrosesan"):
         conversion = pre_report["conversion"]
         st.markdown(
-            f"- Baris data impor awal: **{pre_report['rows_combined']:,}**\n"
+            f"- Baris data impor awal: **{pre_report['rows_imports']:,}**\n"
             f"- Kode HS-6 tidak terbaca/valid: **{conversion['rows_invalid_hs6']:,}**\n"
             f"- Transaksi tanpa pemetaan SITC: **{conversion['rows_unmapped']:,}** "
             f"(nilai transaksi: US$ {conversion['usd_value_unmapped']:,.2f})\n"
@@ -185,18 +146,16 @@ def render() -> None:
         "akan siap dijalankan setelah seluruh berkas terverifikasi valid."
     )
 
-    _ensure_reference_conversion()
-
     # ------------------------------------------------------------------
     # Uploads
     # ------------------------------------------------------------------
     st.subheader("1 · Berkas Data Input Wajib")
     up1, up2 = st.columns(2)
     with up1:
-        combined_upload = st.file_uploader(
-            "combined_dataset.csv",
+        imports_upload = st.file_uploader(
+            "port_imports.csv",
             type=["csv", "xlsx"],
-            key="upload_combined",
+            key="upload_imports",
             help="Data impor pelabuhan: port, hs_code, usd_value.",
         )
     with up2:
@@ -210,7 +169,7 @@ def render() -> None:
     up3, up4 = st.columns(2)
     with up3:
         conversion_upload = st.file_uploader(
-            "HS2022toSITC4ConversionAndCorrelationTables.xlsx",
+            "HS2022_to_SITC_Conversion.xlsx",
             type=["xlsx", "csv"],
             key="upload_conversion",
             help="Tabel korespondensi konversi HS 2022 ke SITC Rev. 4 (From HS 2022, To SITC Rev. 4).",
@@ -223,8 +182,8 @@ def render() -> None:
             help="Lokasi dan provinsi pelabuhan: port, Provinsi, latitude, longitude.",
         )
 
-    if combined_upload is not None:
-        _store_upload("combined", combined_upload)
+    if imports_upload is not None:
+        _store_upload("imports", imports_upload)
     if provinces_upload is not None:
         _store_upload("provinces", provinces_upload)
     if conversion_upload is not None:
@@ -235,7 +194,7 @@ def render() -> None:
     st.markdown("##### Status Verifikasi Berkas")
     status_left, status_right = st.columns(2)
     with status_left:
-        _file_status_row("Data Impor (combined_dataset)", "combined", COMBINED_REQUIRED)
+        _file_status_row("Data Impor (port_imports)", "imports", IMPORTS_REQUIRED)
         _file_status_row("Data Provinsi (provinces_data)", "provinces", PROVINCES_REQUIRED)
     with status_right:
         _file_status_row("Tabel Konversi HS–SITC", "conversion", CONVERSION_REQUIRED)
@@ -244,12 +203,9 @@ def render() -> None:
             "geolocation",
             GEOLOCATION_REQUIRED,
         )
-        source = st.session_state.get("conversion_source")
-        if source:
-            st.caption(f"Sumber tabel konversi: {source}.")
 
     all_valid = bool(
-        st.session_state.get("combined_valid")
+        st.session_state.get("imports_valid")
         and st.session_state.get("provinces_valid")
         and st.session_state.get("conversion_valid")
         and st.session_state.get("geolocation_valid")
@@ -276,7 +232,7 @@ def render() -> None:
     missing = [
         label
         for label, kind in [
-            ("combined_dataset", "combined"),
+            ("port_imports", "imports"),
             ("provinces_data", "provinces"),
             ("tabel konversi", "conversion"),
             ("port_geolocation", "geolocation"),
@@ -303,7 +259,7 @@ def render() -> None:
             with st.status("Menjalankan prapemrosesan dan pemodelan klaster...", expanded=True) as status:
                 st.write("1/2 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi & geolokasi pelabuhan, dan IQR capping.")
                 pre_result = run_preprocessing(
-                    align_columns(st.session_state["combined_df"], COMBINED_REQUIRED),
+                    align_columns(st.session_state["imports_df"], IMPORTS_REQUIRED),
                     align_columns(st.session_state["provinces_df"], PROVINCES_REQUIRED),
                     align_columns(st.session_state["conversion_df"], CONVERSION_REQUIRED),
                     align_columns(st.session_state["geolocation_df"], GEOLOCATION_REQUIRED),
