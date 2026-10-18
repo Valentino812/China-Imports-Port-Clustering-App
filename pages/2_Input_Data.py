@@ -1,4 +1,4 @@
-"""Input Data page: upload the three mandatory files, configure K and run the pipeline."""
+"""Input Data page: upload the four mandatory files, configure K and run the pipeline."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from src.modeling import run_modeling
 from src.preprocessing import (
     COMBINED_REQUIRED,
     CONVERSION_REQUIRED,
+    GEOLOCATION_REQUIRED,
     PROVINCES_REQUIRED,
     align_columns,
     read_table,
@@ -69,6 +70,7 @@ def _store_upload(kind: str, upload) -> None:
         "combined": COMBINED_REQUIRED,
         "provinces": PROVINCES_REQUIRED,
         "conversion": CONVERSION_REQUIRED,
+        "geolocation": GEOLOCATION_REQUIRED,
     }[kind]
     valid, message = validate_columns(df, required, upload.name)
     st.session_state[f"{kind}_bytes"] = content
@@ -107,6 +109,7 @@ def _current_signature() -> tuple:
         st.session_state.get("combined_signature"),
         st.session_state.get("provinces_signature"),
         st.session_state.get("conversion_signature"),
+        st.session_state.get("geolocation_signature"),
         int(st.session_state.get("n_clusters", 4)),
     )
 
@@ -140,7 +143,7 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     st.subheader("Ringkasan Hasil Pemodelan")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Observasi Final", f"{pre_report['rows_final']:,}")
-    c2.metric("Pelabuhan Unik", f"{clustered['port'].nunique():,}")
+    c2.metric("Jumlah Pelabuhan", f"{clustered['port'].nunique():,}")
     c3.metric("Cakupan Provinsi", f"{clustered['Provinsi'].nunique():,}")
     c4.metric("Jumlah Klaster (K)", str(model_result["config"]["n_clusters"]))
 
@@ -178,7 +181,7 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
 def render() -> None:
     st.title("Input Data & Konfigurasi")
     st.write(
-        "Unggah ketiga berkas data persyaratan di bawah ini. Tahapan prapemrosesan dan pemodelan "
+        "Unggah keempat berkas data persyaratan di bawah ini. Tahapan prapemrosesan dan pemodelan "
         "akan siap dijalankan setelah seluruh berkas terverifikasi valid."
     )
 
@@ -188,7 +191,7 @@ def render() -> None:
     # Uploads
     # ------------------------------------------------------------------
     st.subheader("1 · Berkas Data Input Wajib")
-    up1, up2, up3 = st.columns(3)
+    up1, up2 = st.columns(2)
     with up1:
         combined_upload = st.file_uploader(
             "combined_dataset.csv",
@@ -203,12 +206,21 @@ def render() -> None:
             key="upload_provinces",
             help="Indikator makro provinsi: Provinsi, pdrb, china_investment_us_ribu, micro_small_industries.",
         )
+
+    up3, up4 = st.columns(2)
     with up3:
         conversion_upload = st.file_uploader(
             "HS2022toSITC4ConversionAndCorrelationTables.xlsx",
             type=["xlsx", "csv"],
             key="upload_conversion",
             help="Tabel korespondensi konversi HS 2022 ke SITC Rev. 4 (From HS 2022, To SITC Rev. 4).",
+        )
+    with up4:
+        geolocation_upload = st.file_uploader(
+            "port_geolocation.csv",
+            type=["csv", "xlsx"],
+            key="upload_geolocation",
+            help="Lokasi dan provinsi pelabuhan: port, Provinsi, latitude, longitude.",
         )
 
     if combined_upload is not None:
@@ -217,6 +229,8 @@ def render() -> None:
         _store_upload("provinces", provinces_upload)
     if conversion_upload is not None:
         _store_upload("conversion", conversion_upload)
+    if geolocation_upload is not None:
+        _store_upload("geolocation", geolocation_upload)
 
     st.markdown("##### Status Verifikasi Berkas")
     status_left, status_right = st.columns(2)
@@ -225,6 +239,11 @@ def render() -> None:
         _file_status_row("Data Provinsi (provinces_data)", "provinces", PROVINCES_REQUIRED)
     with status_right:
         _file_status_row("Tabel Konversi HS–SITC", "conversion", CONVERSION_REQUIRED)
+        _file_status_row(
+            "Data Geolokasi Pelabuhan (port_geolocation)",
+            "geolocation",
+            GEOLOCATION_REQUIRED,
+        )
         source = st.session_state.get("conversion_source")
         if source:
             st.caption(f"Sumber tabel konversi: {source}.")
@@ -233,6 +252,7 @@ def render() -> None:
         st.session_state.get("combined_valid")
         and st.session_state.get("provinces_valid")
         and st.session_state.get("conversion_valid")
+        and st.session_state.get("geolocation_valid")
     )
 
     # ------------------------------------------------------------------
@@ -259,6 +279,7 @@ def render() -> None:
             ("combined_dataset", "combined"),
             ("provinces_data", "provinces"),
             ("tabel konversi", "conversion"),
+            ("port_geolocation", "geolocation"),
         ]
         if not st.session_state.get(f"{kind}_valid")
     ]
@@ -280,11 +301,12 @@ def render() -> None:
         progress = st.progress(0, text="Menginisialisasi pipeline analisis...")
         try:
             with st.status("Menjalankan prapemrosesan dan pemodelan klaster...", expanded=True) as status:
-                st.write("1/2 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi, dan IQR capping.")
+                st.write("1/2 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi & geolokasi pelabuhan, dan IQR capping.")
                 pre_result = run_preprocessing(
                     align_columns(st.session_state["combined_df"], COMBINED_REQUIRED),
                     align_columns(st.session_state["provinces_df"], PROVINCES_REQUIRED),
                     align_columns(st.session_state["conversion_df"], CONVERSION_REQUIRED),
+                    align_columns(st.session_state["geolocation_df"], GEOLOCATION_REQUIRED),
                 )
                 progress.progress(0.35, text="Tahap prapemrosesan data selesai.")
 

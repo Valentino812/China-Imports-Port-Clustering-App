@@ -14,6 +14,19 @@ import plotly.graph_objects as go
 
 NEUTRAL_SEQUENCE = ["#4C6EF5", "#12B886", "#F59F00", "#FA5252", "#7950F2", "#15AABF", "#E64980"]
 
+# Palet kualitatif kontras tinggi dan colorblind-safe (Okabe-Ito). Dipakai untuk
+# kategori diskret agar setiap kelompok mendapat warna yang jelas berbeda, bukan
+# gradasi dari skala warna kontinu.
+QUALITATIVE_SEQUENCE = [
+    "#0072B2",  # biru
+    "#E69F00",  # kuning/oranye
+    "#009E73",  # hijau
+    "#D55E00",  # merah bata
+    "#CC79A7",  # magenta
+    "#56B4E9",  # biru muda
+    "#F0E442",  # kuning
+]
+
 
 def _empty_figure(message: str) -> go.Figure:
     fig = go.Figure()
@@ -228,20 +241,50 @@ def geo_scatter(
     lon_col: str,
     hover_name: str | None,
     title: str,
+    color_col: str = "Cluster",
+    legend_title: str = "Klaster",
 ) -> go.Figure:
+    """Scatter map whose markers are coloured by a discrete category.
+
+    ``color_col`` is converted to text before plotting. That forces Plotly to use
+    a qualitative palette; passing a numeric column (for example the raw
+    ``Cluster`` labels) would otherwise produce a continuous colour scale.
+    """
+    df = data.copy()
+    group_col = "__kelompok_warna__"
+    df[group_col] = df[color_col].astype(str)
+    groups = sorted(df[group_col].unique())
+    color_map = {
+        group: QUALITATIVE_SEQUENCE[i % len(QUALITATIVE_SEQUENCE)]
+        for i, group in enumerate(groups)
+    }
+
+    hover_data: dict[str, object] = {}
+    for col in ("Provinsi", "Klaster", "sitc"):
+        if col in df.columns and col != color_col:
+            hover_data[col] = True
+    if "usd_value" in df.columns:
+        hover_data["usd_value"] = ":,.2f"
+
     fig = px.scatter_geo(
-        data,
+        df,
         lat=lat_col,
         lon=lon_col,
-        color="Cluster",
+        color=group_col,
         hover_name=hover_name,
+        hover_data=hover_data,
+        category_orders={group_col: groups},
+        color_discrete_map=color_map,
+        labels={group_col: legend_title},
         scope="asia",
         projection="natural earth",
-        color_discrete_sequence=NEUTRAL_SEQUENCE,
         title=title,
     )
+    fig.update_traces(
+        marker=dict(size=10, opacity=0.9, line=dict(width=1, color="white"))
+    )
     fig.update_geos(fitbounds="locations", visible=True, showcountries=True, countrycolor="#D0D0D0")
-    fig.update_layout(height=560, margin=dict(l=0, r=0, t=50, b=0), legend_title_text="Cluster")
+    fig.update_layout(height=560, margin=dict(l=0, r=0, t=50, b=0), legend_title_text=legend_title)
     return fig
 
 

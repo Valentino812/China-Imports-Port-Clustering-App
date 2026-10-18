@@ -39,8 +39,8 @@ def render() -> None:
             """
             <div class="section-card">
               <h4>01 · Input Data</h4>
-              <p>Unggah tiga berkas data wajib: data transaksi impor, data makro provinsi, dan tabel konversi HS–SITC,
-              lalu tentukan jumlah klaster yang diinginkan.</p>
+              <p>Unggah empat berkas data wajib: data transaksi impor, data makro provinsi, tabel konversi HS–SITC,
+              dan data geolokasi pelabuhan, lalu tentukan jumlah klaster yang diinginkan.</p>
             </div>
             """,
             unsafe_allow_html=True,

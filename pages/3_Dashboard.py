@@ -39,6 +39,26 @@ VIEW_TITLES = {
     "Data": ("Eksplorasi & Ekspor Data", "Pratinjau tabel dan opsi ekspor dataset pada setiap tahapan analisis."),
 }
 
+# Nama kelompok SITC Rev. 4 berdasarkan digit pertama kode SITC.
+SITC_LABELS = {
+    "0": "Bahan makanan dan binatang hidup",
+    "1": "Minuman dan tembakau",
+    "2": "Bahan mentah, tidak dapat dimakan, kecuali bahan bakar",
+    "3": "Bahan bakar mineral, pelumas, dan bahan terkait",
+    "4": "Minyak dan lemak hewani/nabati",
+    "5": "Bahan kimia dan produk terkait",
+    "6": "Barang manufaktur menurut bahan",
+    "7": "Mesin dan peralatan transportasi",
+    "8": "Berbagai barang manufaktur",
+    "9": "Komoditas dan transaksi tidak diklasifikasikan di tempat lain",
+}
+
+
+def _sitc_label(value: str) -> str:
+    label = SITC_LABELS.get(str(value))
+    return f"SITC {value} — {label}" if label else f"SITC {value}"
+
+
 DASHBOARD_CSS = r"""
 <style>
 /* Dashboard satu-satunya halaman yang menampilkan sidebar. */
@@ -107,7 +127,7 @@ def _goto_input() -> None:
 
 def _no_results(view: str) -> None:
     st.info(
-        "Belum ada hasil analisis pada sesi ini. Silakan buka halaman **Input Data**, unggah ketiga "
+        "Belum ada hasil analisis pada sesi ini. Silakan buka halaman **Input Data**, unggah keempat "
         "berkas wajib, lalu jalankan proses pemodelan."
     )
     st.button(
@@ -127,7 +147,7 @@ def _render_summary(result: dict) -> None:
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Observasi", f"{len(clustered):,}")
-    c2.metric("Pelabuhan Unik", f"{clustered['port'].nunique():,}")
+    c2.metric("Jumlah Pelabuhan", f"{clustered['port'].nunique():,}")
     c3.metric("Cakupan Provinsi", f"{clustered['Provinsi'].nunique():,}")
     c4.metric("Jumlah Klaster (K)", str(result["modeling"]["config"]["n_clusters"]))
 
@@ -437,13 +457,67 @@ def _render_map(result: dict) -> None:
         st.warning("Tidak ditemukan data koordinat yang valid pada dataset.")
         return
 
+    if "sitc" not in map_data.columns:
+        st.warning("Kolom `sitc` tidak ditemukan sehingga filter kategori SITC tidak tersedia.")
+        return
+
+    sitc_options = sorted(
+        map_data["sitc"].astype(str).unique(),
+        key=lambda value: int(value) if value.isdigit() else 99,
+    )
+    if st.session_state.get("map_sitc_choice") not in sitc_options:
+        st.session_state["map_sitc_choice"] = sitc_options[0]
+
+    selected_sitc = st.selectbox(
+        "Kategori SITC (pilih satu)",
+        sitc_options,
+        key="map_sitc_choice",
+        format_func=_sitc_label,
+        help=(
+            "Peta hanya menampilkan satu kategori SITC agar beberapa kategori pada "
+            "pelabuhan yang sama tidak saling menumpuk."
+        ),
+    )
+
+    subset = map_data[map_data["sitc"].astype(str) == selected_sitc].copy()
+    subset = subset.drop_duplicates(subset=["port"]).reset_index(drop=True)
+    subset["Klaster"] = subset["Cluster"].apply(
+        lambda value: f"Cluster {int(value)}" if pd.notna(value) else "Cluster N/A"
+    )
+
     from src.visualization import geo_scatter
 
     st.plotly_chart(
-        geo_scatter(map_data, lat_col, lon_col, "port", "Sebaran Klaster Pelabuhan"),
+        geo_scatter(
+            subset,
+            lat_col,
+            lon_col,
+            "port",
+            f"Sebaran Klaster Pelabuhan — SITC {selected_sitc}",
+            color_col="Klaster",
+        ),
         width="stretch",
     )
-    st.caption(f"Menampilkan {len(map_data):,} titik pelabuhan dengan koordinat valid.")
+
+    collisions = subset[
+        subset.duplicated(subset=[lat_col, lon_col], keep=False)
+    ].sort_values([lat_col, lon_col, "port"])
+    caption = f"Menampilkan {len(subset):,} pelabuhan pada {_sitc_label(selected_sitc)}."
+    if not collisions.empty:
+        caption += f" {len(collisions):,} titik berbagi koordinat dengan pelabuhan lain."
+    st.caption(caption)
+
+    if not collisions.empty:
+        with st.expander("Pelabuhan dengan koordinat identik"):
+            st.write(
+                "Nama pelabuhan berikut berada pada koordinat yang sama sehingga marker-nya "
+                "saling menumpuk. Posisi tidak digeser agar tetap akurat secara geografis."
+            )
+            st.dataframe(
+                collisions[["port", "Provinsi", lat_col, lon_col, "Klaster"]],
+                width="stretch",
+                hide_index=True,
+            )
 
 
 
