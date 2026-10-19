@@ -32,11 +32,33 @@ from src.visualization import (
 VIEWS = ["Ringkasan", "Profil Klaster", "Evaluasi", "Peta", "Data"]
 
 VIEW_TITLES = {
-    "Ringkasan": ("Ringkasan Hasil Klasterisasi", "Tinjauan tingkat tinggi hasil pengelompokan pelabuhan."),
-    "Profil Klaster": ("Karakteristik & Profil Klaster", "Karakteristik fitur dan distribusi tiap klaster hasil pemodelan."),
-    "Evaluasi": ("Evaluasi Kualitas Model", "Metode Elbow, skor Silhouette campuran, dan evaluasi model surrogate."),
-    "Peta": ("Peta Distribusi Spasial", "Visualisasi persebaran geografis klaster pelabuhan."),
-    "Data": ("Eksplorasi & Ekspor Data", "Pratinjau tabel dan opsi ekspor dataset pada setiap tahapan analisis."),
+    "Ringkasan": (
+        "Ringkasan Hasil Klasterisasi",
+        "Tinjauan menyeluruh atas hasil pengelompokan kombinasi pelabuhan dan kategori komoditas SITC, "
+        "mencakup jumlah observasi, komposisi klaster, serta proporsi distribusi tiap kelompok.",
+    ),
+    "Profil Klaster": (
+        "Karakteristik & Profil Klaster",
+        "Analisis mendalam karakteristik tiap klaster melalui statistik deskriptif fitur numerik, "
+        "modus fitur kategorikal, distribusi kelompok komoditas SITC, sebaran wilayah provinsi, "
+        "dan interpretasi berbasis nilai SHAP dari model surrogate Random Forest.",
+    ),
+    "Evaluasi": (
+        "Evaluasi Kualitas Model",
+        "Penilaian kualitas klasterisasi menggunakan metode Elbow (nilai cost K-Prototypes), "
+        "skor Silhouette campuran untuk mengukur kohesi dan separasi klaster, serta evaluasi "
+        "performa model surrogate Random Forest sebagai landasan validitas analisis SHAP.",
+    ),
+    "Peta": (
+        "Peta Distribusi Spasial",
+        "Visualisasi interaktif persebaran geografis klaster pelabuhan di seluruh wilayah Indonesia, "
+        "difilter berdasarkan kategori komoditas SITC untuk menghindari tumpang tindih titik lokasi.",
+    ),
+    "Data": (
+        "Eksplorasi & Ekspor Data",
+        "Pratinjau dan ekspor dataset pada setiap tahapan pipeline analisis — mulai dari data impor "
+        "mentah, hasil konversi HS–SITC, agregasi, penggabungan provinsi, hingga dataset final berlabel klaster.",
+    ),
 }
 
 # Nama kelompok SITC Rev. 4 berdasarkan digit pertama kode SITC.
@@ -45,18 +67,18 @@ SITC_LABELS = {
     "1": "Minuman dan tembakau",
     "2": "Bahan mentah, tidak dapat dimakan, kecuali bahan bakar",
     "3": "Bahan bakar mineral, pelumas, dan bahan terkait",
-    "4": "Minyak dan lemak hewani/nabati",
+    "4": "Minyak, lemak, dan lilin hewani serta nabati",
     "5": "Bahan kimia dan produk terkait",
-    "6": "Barang manufaktur menurut bahan",
+    "6": "Barang manufaktur berbasis bahan baku",
     "7": "Mesin dan peralatan transportasi",
-    "8": "Berbagai barang manufaktur",
+    "8": "Barang manufaktur jadi",
     "9": "Komoditas dan transaksi tidak diklasifikasikan di tempat lain",
 }
 
 
 def _sitc_label(value: str) -> str:
     label = SITC_LABELS.get(str(value))
-    return f"SITC {value} — {label}" if label else f"SITC {value}"
+    return f"SITC {value}: {label}" if label else f"SITC {value}"
 
 
 DASHBOARD_CSS = r"""
@@ -245,13 +267,22 @@ def _render_profile(result: dict) -> None:
 
     st.subheader("Perbandingan Nilai Rata-Rata Fitur Numerik")
     st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
-    st.caption("Diagram batang perbandingan rata-rata fitur numerik dalam skala satuan asli.")
+    st.caption(
+        "Diagram batang ini menampilkan nilai rata-rata setiap fitur numerik (nilai impor USD, PDRB, "
+        "investasi Tiongkok, dan jumlah industri mikro & kecil) untuk masing-masing klaster dalam "
+        "skala satuan aslinya, sehingga perbedaan besaran absolut antar kelompok dapat dibandingkan secara langsung."
+    )
 
     from src.visualization import numeric_boxplots
 
     st.subheader("Distribusi Sebaran Fitur Numerik (Boxplot)")
     st.plotly_chart(numeric_boxplots(clustered, numerical_cols), width="stretch")
-    st.caption("Diagram sebaran (boxplot) untuk mengamati rentang, kuartil, dan variasi data numerik tiap klaster.")
+    st.caption(
+        "Diagram kotak (boxplot) memperlihatkan distribusi nilai tiap fitur numerik per klaster, "
+        "meliputi median (Q2), batas kuartil bawah (Q1) dan atas (Q3), rentang antarquartile (IQR), "
+        "serta nilai pencilan di luar batas whisker. Visualisasi ini berguna untuk menilai homogenitas "
+        "dan variabilitas internal masing-masing klaster."
+    )
 
     st.subheader("Heatmap Profil Klaster Terstandardisasi")
     cluster_means = clustered.groupby("Cluster", sort=True)[numerical_cols].mean()
@@ -263,7 +294,13 @@ def _render_profile(result: dict) -> None:
         .fillna(0)
     )
     st.plotly_chart(cluster_z_heatmap(z_profile), width="stretch")
-    st.caption("Nilai Z-score fitur numerik relatif terhadap keseluruhan data (digunakan untuk perbandingan pola antar klaster).")
+    st.caption(
+        "Heatmap ini menampilkan nilai Z-score rata-rata setiap fitur numerik per klaster, "
+        "dihitung relatif terhadap rata-rata dan standar deviasi keseluruhan dataset. "
+        "Nilai positif (lebih terang) menandakan fitur tersebut di atas rata-rata global, "
+        "sedangkan nilai negatif (lebih gelap) menandakan di bawah rata-rata — "
+        "memudahkan identifikasi pola pembeda yang menjadi ciri khas tiap klaster."
+    )
 
     _render_shap_section(result)
 
@@ -271,8 +308,11 @@ def _render_profile(result: dict) -> None:
 def _render_shap_section(result: dict) -> None:
     st.subheader("Analisis SHAP (Interpretasi Model Surrogate)")
     st.caption(
-        "Analisis SHAP menjelaskan kontribusi fitur terhadap prediksi model surrogate Random Forest "
-        "dalam mereplikasi pola klaster K-Prototypes."
+        "Analisis SHAP (SHapley Additive exPlanations) mengukur dan memvisualisasikan kontribusi "
+        "masing-masing fitur terhadap keputusan prediksi model surrogate Random Forest. "
+        "Karena model K-Prototypes bersifat black-box dalam hal interpretasi fitur, model surrogate "
+        "dilatih untuk mereplikasi label klasternya, kemudian nilai SHAP diekstrak dari surrogate "
+        "tersebut sebagai pendekatan kuantitatif dalam menjelaskan faktor penentu pengelompokan."
     )
     shap_result = result["modeling"]["shap"]
     if not shap_result.get("available"):
@@ -307,7 +347,7 @@ def _render_shap_section(result: dict) -> None:
                 import matplotlib.pyplot as plt
 
                 plt.close(fig)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  
                 st.warning(f"Visualisasi Beeswarm untuk Cluster {cluster_id} tidak dapat dibuat: {exc}")
 
 
@@ -376,8 +416,10 @@ def _render_evaluation(result: dict) -> None:
         surrogate["metrics"].round(4), width="stretch", hide_index=True
     )
     st.caption(
-        "Metrik performa ini mengukur tingkat kesesuaian (fidelity) model surrogate Random Forest "
-        "dalam mereproduksi label klaster K-Prototypes, sebagai landasan validitas analisis penjelasan SHAP."
+        "Metrik di atas mengukur tingkat kesesuaian (fidelity) antara prediksi model surrogate Random Forest "
+        "dan label klaster yang dihasilkan oleh K-Prototypes pada data uji. Semakin tinggi nilai akurasi dan "
+        "F1-score surrogate, semakin valid kesimpulan analisis SHAP sebagai penjelasan atas keputusan "
+        "pengelompokan — karena SHAP diderivasi dari surrogate, bukan langsung dari K-Prototypes."
     )
 
     report = surrogate["classification_report"]
@@ -502,9 +544,15 @@ def _render_map(result: dict) -> None:
     collisions = subset[
         subset.duplicated(subset=[lat_col, lon_col], keep=False)
     ].sort_values([lat_col, lon_col, "port"])
-    caption = f"Menampilkan {len(subset):,} pelabuhan pada {_sitc_label(selected_sitc)}."
+    caption = (
+        f"Peta menampilkan {len(subset):,} pelabuhan unik untuk kategori {_sitc_label(selected_sitc)}. "
+        "Setiap titik merepresentasikan satu pelabuhan; warna menunjukkan keanggotaan klaster hasil pemodelan."
+    )
     if not collisions.empty:
-        caption += f" {len(collisions):,} titik berbagi koordinat dengan pelabuhan lain."
+        caption += (
+            f" Terdapat {len(collisions):,} pelabuhan yang berbagi koordinat geografis dengan pelabuhan lain "
+            "sehingga marker-nya saling menumpuk pada peta — daftar lengkapnya tersedia di panel di bawah."
+        )
     st.caption(caption)
 
     if not collisions.empty:
@@ -585,7 +633,10 @@ def _render_data(result: dict) -> None:
         "Jumlah baris ditampilkan", [25, 50, 100, 250, 500], index=1, key="data_max_rows"
     )
     st.dataframe(df.head(max_rows), width="stretch", hide_index=True)
-    st.caption(f"Menampilkan {min(max_rows, len(df)):,} baris pertama dari total {len(df):,} baris data.")
+    st.caption(
+        f"Pratinjau menampilkan {min(max_rows, len(df)):,} baris pertama dari total {len(df):,} baris data "
+        f"pada tahapan '{choice}'. Gunakan tombol unduh di bawah untuk mengekspor keseluruhan dataset dalam format CSV."
+    )
 
     st.download_button(
         f"Unduh berkas: {choice}",
@@ -618,7 +669,7 @@ def _render_data(result: dict) -> None:
 def _render_sidebar() -> str:
     with st.sidebar:
         st.markdown(
-            "<div class='side-brand'><div class='side-brand-title'>DASHBOARD KLASTERISASI<br>PELABUHAN IMPOR TIONGKOK</div></div>",
+            "<div class='side-brand'><div class='side-brand-title'>DASHBOARD KLASTERISASI<br> KOMBINASI PELABUHAN DAN <br> KELOMPOK KOMODITAS BERDASARKAN AKTIVITAS <br> IMPOR TIONGKOK</div></div>",
             unsafe_allow_html=True,
         )
         st.markdown("<div class='side-section-label'>TAMPILAN DASHBOARD</div>", unsafe_allow_html=True)
@@ -645,7 +696,7 @@ def render() -> None:
     st.markdown(
         """
         <div class="app-topbar">
-          <div class="app-topbar-title">Dashboard Klasterisasi Pelabuhan Impor Tiongkok</div>
+          <div class="app-topbar-title">Dashboard Klasterisasi Kombinasi Pelabuhan dan Kelompok Komoditas di Indonesia Berdasarkan Aktivitas Impor Tiongkok</div>
           <div class="app-topbar-subtitle">Analitik · K-Prototypes · Pelabuhan Indonesia</div>
         </div>
         """,

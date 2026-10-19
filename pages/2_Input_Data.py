@@ -82,17 +82,17 @@ def _file_status_row(label: str, kind: str, required_cols: list[str]) -> None:
     df = st.session_state.get(f"{kind}_df")
 
     if df is None:
-        st.markdown(f"**{label}** — <span class='file-missing'>belum diunggah</span>", unsafe_allow_html=True)
+        st.markdown(f"**{label}**: <span class='file-missing'>belum diunggah</span>", unsafe_allow_html=True)
     elif valid:
         st.markdown(
-            f"**{label}** — <span class='file-ok'>valid</span> · `{name}` · {len(df):,} baris × "
+            f"**{label}**: <span class='file-ok'>valid</span> · `{name}` · {len(df):,} baris × "
             f"{len(df.columns)} kolom",
             unsafe_allow_html=True,
         )
-        st.caption("Kolom wajib: " + ", ".join(required_cols))
+        st.caption("📋 Kolom yang diverifikasi: " + " · ".join(f"`{c}`" for c in required_cols))
     else:
         st.markdown(
-            f"**{label}** — <span class='file-missing'>tidak valid</span> · `{name}`",
+            f"**{label}**: <span class='file-missing'>tidak valid</span> · `{name}`",
             unsafe_allow_html=True,
         )
     if message:
@@ -119,10 +119,11 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     sil = model_result["silhouette"]
     sil_txt = "N/A" if pd.isna(sil) else f"{sil:.4f}"
     st.caption(
-        f"Skor Silhouette campuran: {sil_txt} pada {model_result['silhouette_n']:,} observasi · "
-        f"Fidelity surrogate: "
-        f"{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f} · "
-        f"Analisis SHAP: {'Tersedia' if model_result['shap'].get('available') else 'Tidak tersedia'}"
+        f"📊 Skor Silhouette campuran: **{sil_txt}**"
+        f" — dihitung pada {model_result['silhouette_n']:,} observasi.\n\n"
+        f"📈 Fidelity model surrogate (Akurasi Random Forest):"
+        f" **{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f}**\n\n"
+        f"🔍 Analisis SHAP: **{'✅ Tersedia' if model_result['shap'].get('available') else '⚠️ Tidak tersedia'}**"
     )
 
     with st.expander("Detail Ringkasan Tahapan Prapemrosesan"):
@@ -225,8 +226,13 @@ def render() -> None:
         help="Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–7.",
     )
     st.caption(
-        "Fitur input model: `sitc` (kategorikal) serta `usd_value`, `pdrb`, `china_investment_us_ribu`, "
-        "dan `micro_small_industries` (numerik). Kolom `port` dan `Provinsi` difungsikan sebagai metadata."
+        "⚙️ Fitur yang digunakan dalam pemodelan:\n\n"
+        "**Kategorikal:** `sitc` (kelompok komoditas SITC Rev. 4).\n\n"
+        "**Numerik:** `usd_value` (nilai impor, USD) · `pdrb` (PDRB provinsi) · "
+        "`china_investment_us_ribu` (investasi Tiongkok, ribuan USD) · "
+        "`micro_small_industries` (jumlah industri mikro & kecil).\n\n"
+        "Kolom `port` dan `Provinsi` berfungsi sebagai identitas observasi "
+        "dan tidak diikutsertakan dalam proses modelling."
     )
 
     missing = [
@@ -309,7 +315,7 @@ def render() -> None:
     if is_current:
         st.success("Prapemrosesan dan pemodelan berhasil diselesaikan! Hasil analisis siap untuk ditinjau.")
         _render_summary(result["preprocessing"]["report"], result["modeling"])
-        if st.button("Lihat Hasil Analisis di Dashboard →", type="primary", width="stretch"):
+        if st.button("Lihat Hasil Analisis", type="primary", width="stretch"):
             st.switch_page("pages/3_Dashboard.py")
 
     st.divider()
