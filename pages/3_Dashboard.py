@@ -87,16 +87,50 @@ def _sitc_label(value: str) -> str:
 
 DASHBOARD_CSS = r"""
 <style>
-/* ─── Dashboard: unhide sidebar ─────────────────────────────────────── */
-[data-testid='stSidebar'] {
+/* ─── Dashboard: unhide sidebar only while this page is rendered ────── */
+body:has(.dashboard-page-marker) [data-testid='stSidebar'] {
     display: block !important;
     background: rgba(255,255,255,0.95) !important;
     border-right: 1px solid rgba(226,229,241,0.8) !important;
     min-width: 265px;
     box-shadow: 2px 0 12px rgba(79,107,237,0.06);
 }
-[data-testid='stSidebarCollapsedControl'] { display: block !important; }
-[data-testid='stSidebar'] > div:first-child { padding-top: 1.25rem; }
+body:has(.dashboard-page-marker) [data-testid='stSidebar'] > div:first-child {
+    padding-top: 1.25rem;
+}
+
+/* Streamlit renders the expand button inside the header only while the
+   sidebar is collapsed. Keep that button reachable as a floating control. */
+body:has(.dashboard-page-marker) header[data-testid='stHeader'] {
+    display: block !important;
+    position: absolute !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    background: transparent !important;
+    pointer-events: none !important;
+}
+body:has(.dashboard-page-marker) [data-testid='stToolbar'] {
+    display: flex !important;
+    position: fixed !important;
+    left: 1rem;
+    bottom: 1rem;
+    width: auto !important;
+    height: auto !important;
+    padding: 0 !important;
+    background: transparent !important;
+    pointer-events: auto !important;
+    z-index: 1000;
+}
+body:has(.dashboard-page-marker) [data-testid='stToolbar'] > div > div:not(:first-child) {
+    display: none !important;
+}
+body:has(.dashboard-page-marker) [data-testid='stExpandSidebarButton'] {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(226,229,241,0.9) !important;
+    border-radius: 10px !important;
+    padding: 4px !important;
+    box-shadow: 0 2px 8px rgba(79,107,237,0.12) !important;
+}
 
 /* Sidebar text */
 [data-testid='stSidebar'] [data-testid='stMarkdownContainer'] p,
@@ -948,6 +982,9 @@ def _render_sidebar() -> str:
 
 
 def render() -> None:
+    st.markdown(
+        '<div class="dashboard-page-marker"></div>', unsafe_allow_html=True
+    )
     st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
 
     view = _render_sidebar()
