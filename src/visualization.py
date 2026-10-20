@@ -244,23 +244,62 @@ def confusion_heatmap(cm: np.ndarray, labels: list) -> go.Figure:
 
 
 def shap_beeswarm_figure(shap_values, features: pd.DataFrame, title: str):
-    """Build a Matplotlib beeswarm figure for one cluster's SHAP values."""
+    """Build a horizontal box plot figure for one cluster's SHAP values.
+
+    Each feature gets one horizontal box (Q1/median/Q3 + whiskers) that shows
+    the distribution of SHAP values across all observations — the same data
+    that was previously shown as a beeswarm/dot plot.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import shap
+    import numpy as np
 
-    plt.figure(figsize=(8, 5))
-    shap.summary_plot(
-        shap_values,
-        features,
-        plot_type="dot",
-        max_display=min(15, features.shape[1]),
-        show=False,
+    n_features = features.shape[1]
+    max_display = min(15, n_features)
+
+    # Rank features by mean |SHAP| and keep top-max_display
+    mean_abs = np.abs(shap_values).mean(axis=0)
+    order = np.argsort(mean_abs)[::-1][:max_display]  # descending importance
+    order = order[::-1]  # flip so most-important is at top of y-axis
+
+    feature_names = np.array(features.columns)
+    selected_names = feature_names[order]
+    selected_values = shap_values[:, order]  # shape (n_obs, max_display)
+
+    # Build one list of arrays for boxplot
+    data_per_feature = [selected_values[:, i] for i in range(max_display)]
+
+    # Colour each box by its mean |SHAP| value (mapped through a diverging palette)
+    import matplotlib as mpl
+    cmap = mpl.colormaps["RdBu_r"]
+    colors = [cmap(j / max(max_display - 1, 1)) for j in range(max_display)]
+
+    fig, ax = plt.subplots(figsize=(9, max(4, max_display * 0.55)))
+
+    bp = ax.boxplot(
+        data_per_feature,
+        vert=False,           # horizontal boxes
+        patch_artist=True,    # filled boxes
+        notch=False,
+        widths=0.55,
+        medianprops=dict(color="black", linewidth=2),
+        whiskerprops=dict(linewidth=1.4),
+        capprops=dict(linewidth=1.4),
+        flierprops=dict(marker="o", markersize=2, alpha=0.4, linestyle="none"),
     )
-    fig = plt.gcf()
-    fig.suptitle(title, y=1.02)
+
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.82)
+
+    ax.set_yticks(range(1, max_display + 1))
+    ax.set_yticklabels(selected_names, fontsize=9)
+    ax.axvline(0, color="black", linewidth=0.9, linestyle="--", alpha=0.6)
+    ax.set_xlabel("SHAP Values", fontsize=10)
+    ax.set_title(title, fontsize=11, pad=8)
+    ax.grid(axis="x", linestyle=":", alpha=0.4)
     plt.tight_layout()
     return fig
 

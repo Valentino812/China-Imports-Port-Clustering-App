@@ -482,7 +482,7 @@ def _render_shap_section(result: dict) -> None:
         shap_cluster_heatmap(shap_result["importance_per_cluster"]), width="stretch"
     )
 
-    st.markdown("**Distribusi Pengaruh Fitur (Beeswarm Plot per Klaster)**")
+    st.markdown("**Distribusi Pengaruh Fitur (Box Plot per Klaster)**")
     classes = shap_result["classes"]
     features = result["modeling"]["X_model"].loc[
         shap_result["X_eval"].index, result["modeling"]["feature_cols"]
@@ -493,7 +493,7 @@ def _render_shap_section(result: dict) -> None:
             grouped_values = shap_result["grouped_by_cluster"][int(cluster_id)]
             try:
                 fig = shap_beeswarm_figure(
-                    grouped_values.to_numpy(), features, f"SHAP Beeswarm — Cluster {cluster_id}"
+                    grouped_values.to_numpy(), features, f"SHAP Box Plot — Cluster {cluster_id}"
                 )
                 st.pyplot(fig, width="stretch")
                 import matplotlib.pyplot as plt
