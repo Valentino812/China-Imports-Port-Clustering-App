@@ -11,12 +11,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
-NEUTRAL_SEQUENCE = ["#4C6EF5", "#12B886", "#F59F00", "#FA5252", "#7950F2", "#15AABF", "#E64980"]
+from sklearn.metrics import pairwise_distances, silhouette_samples
 
 # Palet kualitatif kontras tinggi dan colorblind-safe (Okabe-Ito). Dipakai untuk
-# kategori diskret agar setiap kelompok mendapat warna yang jelas berbeda, bukan
-# gradasi dari skala warna kontinu.
+# kategori diskret agar setiap kelompok mendapat warna yang jelas berbeda.
 QUALITATIVE_SEQUENCE = [
     "#0072B2",  # biru
     "#E69F00",  # kuning/oranye
@@ -26,6 +24,31 @@ QUALITATIVE_SEQUENCE = [
     "#56B4E9",  # biru muda
     "#F0E442",  # kuning
 ]
+
+
+def _cluster_sort_key(label: str) -> tuple[int, str]:
+    """Sort cluster labels numerically when they contain a number."""
+    text = str(label)
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return (0, int(digits)) if digits else (1, text)
+
+
+def _cluster_label(value: object) -> str:
+    text = str(value)
+    return text if text.startswith("Cluster ") else f"Cluster {text}"
+
+
+def cluster_color_map(cluster_values) -> dict[str, str]:
+    """Map every cluster to one consistent qualitative colour.
+
+    All cluster-based figures share this mapping so the same cluster always
+    receives the same colour across the dashboard.
+    """
+    labels = sorted({_cluster_label(value) for value in cluster_values}, key=_cluster_sort_key)
+    return {
+        label: QUALITATIVE_SEQUENCE[i % len(QUALITATIVE_SEQUENCE)]
+        for i, label in enumerate(labels)
+    }
 
 
 def _empty_figure(message: str) -> go.Figure:
@@ -67,14 +90,16 @@ def cluster_size_bar(cluster_structure: pd.DataFrame, value_col: str, title: str
     if cluster_structure.empty:
         return _empty_figure("Tidak ada data klaster untuk ditampilkan.")
     df = cluster_structure.copy()
-    df["Label"] = df["Cluster"].apply(lambda c: f"Cluster {c}")
+    df["Label"] = df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(df["Label"])
     fig = px.bar(
         df,
         x="Label",
         y=value_col,
         text=value_col,
         color="Label",
-        color_discrete_sequence=NEUTRAL_SEQUENCE,
+        color_discrete_map=colors,
+        category_orders={"Label": list(colors)},
     )
     fig.update_traces(textposition="outside", cliponaxis=False)
     fig.update_layout(showlegend=False, xaxis_title="Klaster", yaxis_title=value_col)
@@ -85,13 +110,16 @@ def cluster_pie(cluster_structure: pd.DataFrame) -> go.Figure:
     if cluster_structure.empty:
         return _empty_figure("Tidak ada data klaster untuk ditampilkan.")
     df = cluster_structure.copy()
-    df["Label"] = df["Cluster"].apply(lambda c: f"Cluster {c}")
+    df["Label"] = df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(df["Label"])
     fig = px.pie(
         df,
         names="Label",
         values="jumlah_kombinasi_Port_SITC",
         hole=0.45,
-        color_discrete_sequence=NEUTRAL_SEQUENCE,
+        color="Label",
+        color_discrete_map=colors,
+        category_orders={"Label": list(colors)},
     )
     fig.update_traces(textinfo="percent+label")
     return _style(fig, title="Proporsi Klaster")
@@ -103,7 +131,8 @@ def numeric_boxplots(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure
     long_df = data.melt(
         id_vars=["Cluster"], value_vars=numerical_cols, var_name="Fitur", value_name="Nilai"
     )
-    long_df["Label"] = long_df["Cluster"].apply(lambda c: f"Cluster {c}")
+    long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(long_df["Label"])
     fig = px.box(
         long_df,
         x="Label",
@@ -111,7 +140,8 @@ def numeric_boxplots(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure
         color="Label",
         facet_col="Fitur",
         facet_col_wrap=2,
-        color_discrete_sequence=NEUTRAL_SEQUENCE,
+        color_discrete_map=colors,
+        category_orders={"Label": list(colors)},
     )
     fig.update_yaxes(matches=None, showticklabels=True)
     fig.update_layout(showlegend=False)
@@ -253,11 +283,8 @@ def geo_scatter(
     df = data.copy()
     group_col = "__kelompok_warna__"
     df[group_col] = df[color_col].astype(str)
-    groups = sorted(df[group_col].unique())
-    color_map = {
-        group: QUALITATIVE_SEQUENCE[i % len(QUALITATIVE_SEQUENCE)]
-        for i, group in enumerate(groups)
-    }
+    groups = sorted(df[group_col].unique(), key=_cluster_sort_key)
+    color_map = cluster_color_map(groups)
 
     hover_data: dict[str, object] = {}
     for col in ("Provinsi", "Klaster", "sitc"):
@@ -288,6 +315,138 @@ def geo_scatter(
     return fig
 
 
+def _stratified_sample(
+    df: pd.DataFrame, max_points: int, random_state: int
+) -> pd.DataFrame:
+    """Deterministically sample rows while preserving cluster proportions."""
+    counts = df["Cluster"].value_counts()
+    max_points = max(int(max_points), int(counts.size))
+    if len(df) <= max_points:
+        return df
+
+    total = int(counts.sum())
+    allocation = {
+        cluster: max(1, int(round(count / total * max_points)))
+        for cluster, count in counts.items()
+    }
+    allocation = {
+        cluster: min(value, int(counts[cluster]))
+        for cluster, value in allocation.items()
+    }
+    while sum(allocation.values()) > max_points:
+        candidates = [cluster for cluster, value in allocation.items() if value > 1]
+        if not candidates:
+            break
+        largest = max(candidates, key=lambda cluster: allocation[cluster])
+        allocation[largest] -= 1
+    while sum(allocation.values()) < max_points:
+        candidates = [
+            cluster
+            for cluster in allocation
+            if allocation[cluster] < int(counts[cluster])
+        ]
+        if not candidates:
+            break
+        largest = max(candidates, key=lambda cluster: counts[cluster])
+        allocation[largest] += 1
+
+    rng = np.random.RandomState(random_state)
+    parts = []
+    for cluster, n_rows in allocation.items():
+        group = df[df["Cluster"] == cluster]
+        if n_rows >= len(group):
+            parts.append(group)
+            continue
+        chosen = np.sort(rng.permutation(len(group))[:n_rows])
+        parts.append(group.iloc[chosen])
+    return pd.concat(parts).sort_index()
+
+
+def cluster_scatter(
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    x_label: str,
+    y_label: str,
+    title: str,
+    log_scale: bool = False,
+    max_points: int = 5000,
+    random_state: int = 42,
+) -> go.Figure:
+    """Scatter plot of two raw features coloured by the actual cluster label.
+
+    Axis values always come from the original units. ``log_scale`` only changes
+    the axis rendering; source values and cluster labels are untouched.
+    """
+    required = ["port", "Provinsi", "sitc", "Cluster", x_col, y_col]
+    missing = [col for col in required if col not in data.columns]
+    if missing:
+        return _empty_figure("Kolom berikut tidak tersedia: " + ", ".join(missing))
+
+    df = data.copy()
+    df[x_col] = pd.to_numeric(df[x_col], errors="coerce")
+    df[y_col] = pd.to_numeric(df[y_col], errors="coerce")
+    df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=[x_col, y_col, "Cluster"])
+    if df.empty:
+        return _empty_figure("Tidak ada observasi dengan nilai yang valid untuk ditampilkan.")
+
+    n_total = int(len(df))
+    excluded_nonpositive = 0
+    if log_scale:
+        positive = (df[x_col] > 0) & (df[y_col] > 0)
+        excluded_nonpositive = int((~positive).sum())
+        df = df.loc[positive].copy()
+        if df.empty:
+            return _empty_figure(
+                "Tidak ada observasi dengan nilai positif pada kedua sumbu sehingga "
+                "skala logaritmik tidak dapat ditampilkan."
+            )
+
+    sampled = len(df) > max_points
+    if sampled:
+        df = _stratified_sample(df, max_points, random_state)
+
+    df["__klaster__"] = df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(df["__klaster__"])
+    hover_data = {
+        "Provinsi": True,
+        "sitc": True,
+        x_col: ":,.2f",
+        y_col: ":,.2f",
+    }
+
+    fig = px.scatter(
+        df,
+        x=x_col,
+        y=y_col,
+        color="__klaster__",
+        hover_name="port",
+        hover_data=hover_data,
+        color_discrete_map=colors,
+        category_orders={"__klaster__": list(colors)},
+        labels={x_col: x_label, y_col: y_label, "__klaster__": "Klaster"},
+        title=title,
+    )
+    fig.update_traces(
+        marker=dict(size=8, opacity=0.65, line=dict(width=0.6, color="white"))
+    )
+
+    x_title = f"{x_label} (skala log)" if log_scale else x_label
+    y_title = f"{y_label} (skala log)" if log_scale else y_label
+    fig.update_xaxes(title_text=x_title, type="log" if log_scale else "linear")
+    fig.update_yaxes(title_text=y_title, type="log" if log_scale else "linear")
+
+    fig = _style(fig, height=420, title=title)
+    fig.layout.meta = {
+        "n_total": n_total,
+        "n_plotted": int(len(df)),
+        "sampled": bool(sampled),
+        "excluded_nonpositive": excluded_nonpositive,
+        "log_scale": bool(log_scale),
+    }
+    return fig
+
+
 def feature_separation_bar(feature_stats: pd.DataFrame) -> go.Figure:
     if feature_stats is None or feature_stats.empty:
         return _empty_figure("Tidak ada statistik fitur.")
@@ -311,7 +470,8 @@ def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Fig
         return _empty_figure("Tidak ada fitur numerik.")
     means = data.groupby("Cluster")[numerical_cols].mean().reset_index()
     long_df = means.melt(id_vars="Cluster", var_name="Fitur", value_name="Rata-rata")
-    long_df["Label"] = long_df["Cluster"].apply(lambda c: f"Cluster {c}")
+    long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(long_df["Label"])
     fig = px.bar(
         long_df,
         x="Label",
@@ -319,7 +479,8 @@ def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Fig
         color="Label",
         facet_col="Fitur",
         facet_col_wrap=2,
-        color_discrete_sequence=NEUTRAL_SEQUENCE,
+        color_discrete_map=colors,
+        category_orders={"Label": list(colors)},
         text="Rata-rata",
     )
     fig.update_traces(texttemplate="%{text:.3g}", textposition="outside")
@@ -327,3 +488,158 @@ def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Fig
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(showlegend=False)
     return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster (satuan asli)")
+
+
+def kprototypes_silhouette_samples(
+    X_model: pd.DataFrame,
+    labels,
+    gamma: float,
+    numerical_cols: list[str],
+    categorical_cols: list[str],
+    sample_size: int = 2500,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """Per-observation silhouette using the mixed K-Prototypes dissimilarity.
+
+    The sampling and distance definition replicate ``kprototypes_silhouette`` in
+    :mod:`src.modeling`, so the mean of the returned values matches the score
+    reported by the evaluation pipeline.
+    """
+    empty = pd.DataFrame(columns=["Cluster", "Silhouette"])
+    if X_model is None or labels is None:
+        return empty
+
+    labels = np.asarray(labels)
+    n_rows = int(len(X_model))
+    if n_rows == 0 or len(labels) != n_rows or not np.isfinite(gamma):
+        return empty
+
+    missing = [
+        col
+        for col in list(numerical_cols) + list(categorical_cols)
+        if col not in X_model.columns
+    ]
+    if missing:
+        return empty
+
+    unique_labels = np.unique(labels)
+    if len(unique_labels) < 2 or len(unique_labels) >= n_rows:
+        return empty
+
+    if n_rows > sample_size:
+        indices = np.random.RandomState(random_state).permutation(n_rows)[:sample_size]
+        X_sample = X_model.iloc[indices].reset_index(drop=True)
+        labels_sample = labels[indices]
+    else:
+        X_sample = X_model.reset_index(drop=True)
+        labels_sample = labels
+
+    numeric_values = X_sample[numerical_cols].to_numpy(dtype=float)
+    distances = pairwise_distances(numeric_values, metric="euclidean", squared=True)
+
+    mismatch = np.zeros((len(X_sample), len(X_sample)), dtype=np.int16)
+    for col in categorical_cols:
+        values = X_sample[col].astype(str).to_numpy()
+        mismatch += values[:, None] != values[None, :]
+    distances = distances + float(gamma) * mismatch.astype(float)
+
+    values = silhouette_samples(distances, labels_sample, metric="precomputed")
+    return pd.DataFrame(
+        {"Cluster": labels_sample.astype(int), "Silhouette": values}
+    )
+
+
+def silhouette_plot(
+    silhouette_df: pd.DataFrame,
+    title: str = "Silhouette Plot per Klaster (Dissimilarity Campuran)",
+    sampled: bool = False,
+    n_total: int | None = None,
+) -> go.Figure:
+    """Horizontal per-cluster silhouette bands with the overall mean line."""
+    if silhouette_df is None or silhouette_df.empty:
+        return _empty_figure("Nilai silhouette per observasi tidak tersedia.")
+    if not {"Cluster", "Silhouette"}.issubset(silhouette_df.columns):
+        return _empty_figure("Kolom nilai silhouette tidak lengkap.")
+
+    df = silhouette_df.dropna(subset=["Cluster", "Silhouette"]).copy()
+    if df.empty:
+        return _empty_figure("Nilai silhouette per observasi tidak tersedia.")
+
+    df["Label"] = df["Cluster"].apply(_cluster_label)
+    colors = cluster_color_map(df["Label"])
+    clusters = sorted(df["Label"].unique(), key=_cluster_sort_key)
+    mean_value = float(df["Silhouette"].mean())
+    negative_share = float((df["Silhouette"] < 0).mean() * 100)
+
+    fig = go.Figure()
+    gap = 10
+    cursor = 0
+    tick_positions: list[float] = []
+    tick_labels: list[str] = []
+
+    for cluster in clusters:
+        values = np.sort(
+            df.loc[df["Label"] == cluster, "Silhouette"].to_numpy(dtype=float)
+        )
+        if len(values) == 0:
+            continue
+        y_positions = np.arange(cursor, cursor + len(values))
+        fig.add_trace(
+            go.Bar(
+                x=values,
+                y=y_positions,
+                orientation="h",
+                width=1,
+                marker=dict(color=colors[cluster], line=dict(width=0)),
+                name=cluster,
+                hovertemplate=(
+                    f"<b>{cluster}</b><br>Silhouette: %{{x:.4f}}<extra></extra>"
+                ),
+            )
+        )
+        tick_positions.append(cursor + (len(values) - 1) / 2)
+        tick_labels.append(f"{cluster} (n={len(values):,})")
+        cursor += len(values) + gap
+
+    x_min = min(0.0, float(df["Silhouette"].min())) - 0.05
+    fig.add_vline(x=0, line_color="#D0D0D0", line_width=1)
+    fig.add_vline(x=mean_value, line_dash="dash", line_color="#D62728", line_width=2)
+
+    if sampled and n_total:
+        mean_text = (
+            f"Rata-rata sampel (n={len(df):,} dari {n_total:,}) = {mean_value:.3f}"
+        )
+    else:
+        mean_text = f"Rata-rata = {mean_value:.3f}"
+
+    fig.add_annotation(
+        x=mean_value,
+        y=1.0,
+        xref="x",
+        yref="paper",
+        yanchor="bottom",
+        showarrow=False,
+        text=mean_text,
+        font=dict(color="#D62728", size=12),
+    )
+    fig.update_layout(
+        barmode="overlay",
+        bargap=0,
+        legend_title_text="Klaster",
+        xaxis=dict(title="Silhouette Coefficient Values", range=[x_min, 1.0]),
+        yaxis=dict(
+            title="Klaster",
+            tickmode="array",
+            tickvals=tick_positions,
+            ticktext=tick_labels,
+            showgrid=False,
+        ),
+    )
+    fig = _style(fig, height=520, title=title)
+    fig.layout.meta = {
+        "mean": mean_value,
+        "negative_share": negative_share,
+        "n_plotted": int(len(df)),
+        "sampled": bool(sampled),
+    }
+    return fig

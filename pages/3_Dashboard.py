@@ -16,16 +16,20 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.modeling import SILHOUETTE_SAMPLE_SIZE
 from src.visualization import (
     cluster_pie,
+    cluster_scatter,
     cluster_size_bar,
     cluster_z_heatmap,
     confusion_heatmap,
     elbow_line,
     global_shap_bar,
+    kprototypes_silhouette_samples,
     numerical_mean_bars,
     shap_beeswarm_figure,
     shap_cluster_heatmap,
+    silhouette_plot,
     sitc_stacked_bar,
 )
 
@@ -180,6 +184,28 @@ def _cluster_structure(clustered: pd.DataFrame) -> pd.DataFrame:
 def _get_mode_text(series: pd.Series) -> str:
     modes = series.mode(dropna=True).astype(str).tolist()
     return ", ".join(modes) if modes else "Tidak tersedia"
+
+
+@st.cache_data(show_spinner=False)
+def _silhouette_samples_cached(
+    X_model: pd.DataFrame,
+    labels: np.ndarray,
+    gamma: float,
+    numerical_cols: tuple[str, ...],
+    categorical_cols: tuple[str, ...],
+    sample_size: int,
+    random_state: int,
+) -> pd.DataFrame:
+    """Cache the per-observation silhouette while the analysis result is stable."""
+    return kprototypes_silhouette_samples(
+        X_model,
+        labels,
+        gamma,
+        list(numerical_cols),
+        list(categorical_cols),
+        sample_size=sample_size,
+        random_state=random_state,
+    )
 
 
 def _goto_input() -> None:
@@ -341,7 +367,94 @@ def _render_profile(result: dict) -> None:
         "memudahkan identifikasi pola pembeda yang menjadi ciri khas tiap klaster."
     )
 
+    _render_cluster_scatters(result)
     _render_shap_section(result)
+
+
+def _render_cluster_scatters(result: dict) -> None:
+    clustered = result["modeling"]["clustered"]
+    st.subheader("Sebaran Klaster Berdasarkan Nilai Impor dan Indikator Provinsi")
+    st.caption(
+        "Setiap titik mewakili satu kombinasi pelabuhan–SITC. Sumbu menggunakan nilai asli "
+        "(bukan nilai terstandardisasi), sedangkan warna menunjukkan label klaster hasil "
+        "K-Prototypes. Gunakan checkbox di atas setiap grafik untuk mengaktifkan skala "
+        "logaritmik bila distribusi nilai sangat menceng."
+    )
+
+    specs = [
+        {
+            "y": "china_investment_us_ribu",
+            "y_label": "Investasi Tiongkok",
+            "title": "Sebaran Klaster: Nilai Impor vs Investasi Tiongkok",
+            "key": "profile_scatter_log_investment",
+            "caption": (
+                "Plot ini memperlihatkan persebaran kombinasi pelabuhan–SITC menurut nilai impor "
+                "dan investasi Tiongkok pada provinsi terkait. Perhatikan apakah klaster tertentu "
+                "terkonsentrasi pada nilai impor dan investasi yang relatif rendah, menengah, atau "
+                "tinggi, atau tersebar pada berbagai tingkat nilai. Pola ini tidak menunjukkan "
+                "hubungan sebab-akibat."
+            ),
+        },
+        {
+            "y": "micro_small_industries",
+            "y_label": "Jumlah Industri Mikro dan Kecil",
+            "title": "Sebaran Klaster: Nilai Impor vs Jumlah Industri Mikro dan Kecil",
+            "key": "profile_scatter_log_industries",
+            "caption": (
+                "Plot ini memperlihatkan persebaran klaster menurut nilai impor dan jumlah industri "
+                "mikro dan kecil pada provinsi terkait. Interpretasi dibatasi pada karakteristik "
+                "persebaran; jumlah industri mikro dan kecil bukan ukuran langsung kebutuhan impor "
+                "maupun kapasitas penyerapan impor."
+            ),
+        },
+        {
+            "y": "pdrb",
+            "y_label": "PDRB",
+            "title": "Sebaran Klaster: Nilai Impor vs PDRB",
+            "key": "profile_scatter_log_pdrb",
+            "caption": (
+                "Plot ini memperlihatkan persebaran klaster menurut nilai impor dan PDRB provinsi. "
+                "Perhatikan apakah klaster tertentu terkonsentrasi pada kombinasi nilai impor dan "
+                "PDRB tertentu atau tersebar pada berbagai tingkat PDRB. PDRB menggambarkan skala "
+                "aktivitas ekonomi provinsi, bukan hubungan sebab-akibat dengan nilai impor."
+            ),
+        },
+    ]
+
+    for spec in specs:
+        log_scale = st.checkbox(
+            "Gunakan skala logaritmik",
+            key=spec["key"],
+            value=False,
+            help=(
+                "Skala logaritmik hanya mengubah tampilan sumbu. Nilai sumber dan label klaster "
+                "tidak berubah; observasi bernilai 0 tidak dapat ditampilkan."
+            ),
+        )
+        fig = cluster_scatter(
+            clustered,
+            "usd_value",
+            spec["y"],
+            "Nilai Impor (USD)",
+            spec["y_label"],
+            spec["title"],
+            log_scale=log_scale,
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        caption = spec["caption"]
+        meta = dict(fig.layout.meta or {})
+        if meta.get("excluded_nonpositive"):
+            caption += (
+                f" Sebanyak {meta['excluded_nonpositive']:,} observasi bernilai 0 atau negatif "
+                "tidak dapat ditampilkan pada skala log."
+            )
+        if meta.get("sampled"):
+            caption += (
+                f" Visualisasi menggunakan sampel deterministik {meta['n_plotted']:,} dari "
+                f"{meta['n_total']:,} observasi (random_state=42)."
+            )
+        st.caption(caption)
 
 
 def _render_shap_section(result: dict) -> None:
@@ -428,6 +541,113 @@ def _render_evaluation(result: dict) -> None:
             f"Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
             + ("(penarikan sampel deterministik, random_state=42)." if modeling["silhouette_n"] < len(modeling["clustered"]) else "(seluruh data).")
         )
+
+        X_model = modeling.get("X_model")
+        labels = modeling.get("labels")
+        if X_model is None or labels is None:
+            st.warning(
+                "Nilai silhouette per observasi tidak tersedia pada hasil modeling ini, "
+                "sehingga Silhouette Plot tidak dapat ditampilkan."
+            )
+        else:
+            silhouette_df = _silhouette_samples_cached(
+                X_model,
+                np.asarray(labels),
+                float(modeling["gamma"]),
+                tuple(modeling["numerical_cols"]),
+                tuple(modeling["categorical_cols"]),
+                int(SILHOUETTE_SAMPLE_SIZE),
+                42,
+            )
+            if silhouette_df.empty:
+                st.warning(
+                    "Silhouette Plot tidak dapat dibuat karena nilai per observasi tidak "
+                    "tersedia atau jumlah klaster tidak valid."
+                )
+            else:
+                sampled = len(silhouette_df) < len(modeling["clustered"])
+                st.markdown("**Silhouette Plot per Klaster**")
+                st.plotly_chart(
+                    silhouette_plot(
+                        silhouette_df,
+                        sampled=sampled,
+                        n_total=len(modeling["clustered"]),
+                    ),
+                    width="stretch",
+                )
+
+                mean_plot = float(silhouette_df["Silhouette"].mean())
+                negative_share = float(
+                    (silhouette_df["Silhouette"] < 0).mean() * 100
+                )
+                if abs(mean_plot - float(silhouette)) > 1e-6:
+                    st.warning(
+                        "Rata-rata silhouette dari plot "
+                        f"({mean_plot:.6f}) berbeda dari skor evaluasi "
+                        f"({float(silhouette):.6f}). Periksa konsistensi sampel evaluasi."
+                    )
+
+                sample_note = (
+                    f"Plot memakai sampel deterministik {len(silhouette_df):,} dari "
+                    f"{len(modeling['clustered']):,} observasi (random_state=42); rata-rata "
+                    "yang ditampilkan adalah rata-rata sampel tersebut."
+                    if sampled
+                    else f"Plot memakai seluruh {len(silhouette_df):,} observasi; rata-rata "
+                    "sama dengan skor evaluasi di atas."
+                )
+                st.caption(
+                    "Nilai silhouette mendekati 1 menunjukkan observasi relatif cocok dengan "
+                    "klasternya dan terpisah dari klaster terdekat. Nilai mendekati 0 menunjukkan "
+                    "observasi berada di sekitar batas antarklaster, sedangkan nilai negatif "
+                    "menunjukkan observasi mungkin lebih dekat ke klaster lain. "
+                    f"Rata-rata yang diplot = {mean_plot:.4f}; proporsi observasi bernilai "
+                    f"negatif = {negative_share:.2f}%. {sample_note} Tidak ada ambang kualitas "
+                    "tunggal: nilai rata-rata, sebaran per klaster, dan proporsi negatif perlu "
+                    "dibaca bersama-sama."
+                )
+
+                summary = (
+                    silhouette_df.groupby("Cluster")["Silhouette"]
+                    .agg(["size", "mean", "min", "max"])
+                    .reset_index()
+                )
+                summary.columns = [
+                    "Cluster",
+                    "Jumlah",
+                    "Rata-rata",
+                    "Minimum",
+                    "Maksimum",
+                ]
+                negative_by_cluster = (
+                    silhouette_df.groupby("Cluster")["Silhouette"]
+                    .apply(lambda values: float((values < 0).mean() * 100))
+                    .reset_index(name="% Negatif")
+                )
+                summary = summary.merge(negative_by_cluster, on="Cluster")
+                summary["Klaster"] = summary["Cluster"].apply(
+                    lambda value: f"Cluster {int(value)}"
+                )
+                st.dataframe(
+                    summary[
+                        [
+                            "Klaster",
+                            "Jumlah",
+                            "Rata-rata",
+                            "Minimum",
+                            "Maksimum",
+                            "% Negatif",
+                        ]
+                    ].round(
+                        {
+                            "Rata-rata": 3,
+                            "Minimum": 3,
+                            "Maksimum": 3,
+                            "% Negatif": 2,
+                        }
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
 
     st.subheader("Parameter Konfigurasi Algoritma K-Prototypes")
     config = modeling["config"]
