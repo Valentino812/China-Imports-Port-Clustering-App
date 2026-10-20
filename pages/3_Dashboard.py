@@ -682,7 +682,7 @@ def _render_sidebar() -> str:
         if st.button("← Kembali ke Beranda", width="stretch"):
             st.switch_page("pages/1_Beranda.py")
         st.markdown(
-            "<div class='sidebar-footer-caption'>Sistem Analitik Klasterisasi Pelabuhan</div>",
+            "<div class='sidebar-footer-caption'>Sistem Analitik Klasterisasi Kombinasi Pelabuhan dan Kelompok Komoditas</div>",
             unsafe_allow_html=True,
         )
     return view

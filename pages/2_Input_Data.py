@@ -60,7 +60,6 @@ def _store_upload(kind: str, upload) -> None:
     st.session_state[f"{kind}_valid"] = valid
     st.session_state[f"{kind}_message"] = message
     st.session_state[key] = signature
-    # Data berubah: hasil lama tidak lagi relevan.
     st.session_state["analysis_result"] = None
     st.session_state["analysis_signature"] = None
 
