@@ -53,45 +53,209 @@ for key, value in _DEFAULTS.items():
 # ---------------------------------------------------------------------------
 BASE_CSS = r"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap');
 
-html, body, [class*='css'], [data-testid='stAppViewContainer'] {
-    font-family: 'Inter', sans-serif;
+/* ─── Base ─────────────────────────────────────────────────────────── */
+html, body, [class*='css'],
+[data-testid='stAppViewContainer'],
+[data-testid='stMain'],
+[data-testid='stMainBlockContainer'] {
+    font-family: 'Inter', system-ui, sans-serif !important;
 }
+
 .stApp, [data-testid='stAppViewContainer'] {
-    background: #FAF9F9;
-    color: #1A1C1C;
+    background: #F0F2F8;
+    color: #1A1C2E;
 }
-/* Hilangkan bar hitam kosong di bagian atas konten. */
+
 header[data-testid='stHeader'] { display: none !important; height: 0 !important; min-height: 0 !important; }
 div[data-testid='stDecoration'], [data-testid='stToolbar'] { display: none !important; height: 0 !important; }
-.block-container { padding-top: 1.5rem !important; padding-bottom: 2.5rem !important; max-width: 1500px; }
 
-.app-topbar {
-    background: #FFFFFF; border: 1px solid #E2E2E2; border-radius: 8px;
-    padding: 14px 20px; margin: 0 0 22px 0;
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+.block-container {
+    padding-top: 1.75rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 1500px;
 }
-.app-topbar-title { font-size: 18px; font-weight: 700; color: #1E1E1E; line-height: 1.4; }
-.app-topbar-subtitle { font-size: 12px; color: #6B6B6B; white-space: nowrap; }
 
-[data-testid='stMetric'] { background: #FFFFFF; border: 1px solid #E2E2E2; border-radius: 8px; padding: 14px 16px; }
-[data-testid='stMetricLabel'] { color: #666666; }
-[data-testid='stMetricValue'] { color: #1A1C1C; }
-div[data-testid='stVerticalBlockBorderWrapper'] { border-radius: 8px; }
+/* ─── Topbar ────────────────────────────────────────────────────────── */
+.app-topbar {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(226,229,241,0.8);
+    border-radius: 14px;
+    padding: 14px 22px;
+    margin: 0 0 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 2px 10px rgba(79,107,237,0.07);
+}
+.app-topbar-title  { font-size: 17px; font-weight: 700; color: #1A1C2E; line-height: 1.4; }
+.app-topbar-subtitle { font-size: 12px; color: #6B7280; white-space: nowrap; }
 
-.hero-panel { background: #FFFFFF; border: 1px solid #D8D8D8; border-radius: 10px; padding: clamp(26px, 5vw, 58px); text-align: center; margin: 8px 0 22px 0; }
-.hero-eyebrow { color: #666666; letter-spacing: .18em; font-size: 11px; font-weight: 700; margin-bottom: 15px; }
-.hero-title { color: #1E1E1E; font-size: clamp(28px, 3vw, 42px); line-height: 1.2; font-weight: 700; margin: 0 auto 18px auto; max-width: 880px; }
-.hero-copy { color: #616161; font-size: 16px; line-height: 1.7; max-width: 820px; margin: 0 auto 24px auto; }
-.small-note { color: #666666; font-size: 12px; }
-.section-card { background: #FFFFFF; border: 1px solid #E2E2E2; border-radius: 8px; padding: 18px 20px; height: 100%; }
-.section-card h4 { margin: 0 0 8px 0; font-size: 15px; color: #1E1E1E; }
-.section-card p { margin: 0; color: #616161; font-size: 14px; line-height: 1.6; }
-.file-ok { color: #0B7285; font-weight: 600; }
-.file-missing { color: #C92A2A; font-weight: 600; }
+/* ─── Metric cards ──────────────────────────────────────────────────── */
+[data-testid='stMetric'] {
+    background: rgba(255,255,255,0.90);
+    border: 1px solid rgba(226,229,241,0.8);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: 0 2px 8px rgba(79,107,237,0.06);
+}
+[data-testid='stMetricLabel'] p { font-size: 13px !important; color: #6B7280 !important; font-weight: 500 !important; }
+[data-testid='stMetricValue']   { font-size: 26px !important; color: #1A1C2E !important; font-weight: 700 !important; }
+div[data-testid='stVerticalBlockBorderWrapper'] { border-radius: 14px; }
 
-/* Secara bawaan sidebar disembunyikan; hanya Dashboard yang menampilkannya. */
+/* ─── Hero panel (Beranda) ──────────────────────────────────────────── */
+.hero-panel {
+    background: rgba(255,255,255,0.90);
+    border: 1px solid rgba(226,229,241,0.7);
+    border-radius: 20px;
+    padding: clamp(30px, 5vw, 64px) clamp(24px, 6vw, 72px);
+    text-align: center;
+    margin: 0 0 24px 0;
+    box-shadow: 0 4px 20px rgba(79,107,237,0.08);
+}
+.hero-title {
+    color: #1A1C2E;
+    font-size: clamp(22px, 2.6vw, 38px);
+    line-height: 1.25;
+    font-weight: 800;
+    margin: 0 auto 14px auto;
+    max-width: 900px;
+    letter-spacing: -0.3px;
+}
+.hero-subtitle {
+    display: inline-block;
+    background: rgba(79,107,237,0.10);
+    color: #4F6BED;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+}
+.hero-copy {
+    color: #4B5563;
+    font-size: 15.5px;
+    line-height: 1.75;
+    max-width: 830px;
+    margin: 0 auto;
+}
+
+/* ─── Section cards (Beranda step cards) ────────────────────────────── */
+.section-card {
+    background: rgba(255,255,255,0.90);
+    border: 1px solid rgba(226,229,241,0.8);
+    border-radius: 16px;
+    padding: 22px 24px;
+    height: 100%;
+    box-shadow: 0 2px 10px rgba(79,107,237,0.06);
+}
+.section-card h4 {
+    margin: 0 0 10px 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1A1C2E;
+    letter-spacing: -0.1px;
+}
+.section-card p {
+    margin: 0;
+    color: #4B5563;
+    font-size: 14px;
+    line-height: 1.65;
+}
+
+/* ─── Status badges ─────────────────────────────────────────────────── */
+.file-ok      { color: #16A34A; font-weight: 600; }
+.file-missing { color: #DC2626; font-weight: 600; }
+
+/* ─── Caption / small text ──────────────────────────────────────────── */
+[data-testid='stCaptionContainer'] p,
+.stCaption p {
+    font-size: 13px !important;
+    color: #6B7280 !important;
+    line-height: 1.6 !important;
+}
+
+/* ─── Buttons ───────────────────────────────────────────────────────── */
+[data-testid='stBaseButton-primary'] > button,
+button[kind='primary'] {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    padding: 10px 22px !important;
+    box-shadow: 0 2px 8px rgba(79,107,237,0.18) !important;
+}
+[data-testid='stBaseButton-secondary'] > button,
+button[kind='secondary'] {
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+}
+
+/* ─── Dataframes & tables ───────────────────────────────────────────── */
+[data-testid='stDataFrame'] > div {
+    border-radius: 12px !important;
+    overflow: hidden;
+    border: 1px solid rgba(226,229,241,0.9) !important;
+    box-shadow: 0 1px 6px rgba(79,107,237,0.05);
+}
+
+/* ─── Expander ──────────────────────────────────────────────────────── */
+[data-testid='stExpander'] {
+    border-radius: 12px !important;
+    border: 1px solid rgba(226,229,241,0.8) !important;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(79,107,237,0.04);
+}
+
+/* ─── Alerts / info / warning ───────────────────────────────────────── */
+[data-testid='stAlert'] {
+    border-radius: 12px !important;
+}
+
+/* ─── File uploader ─────────────────────────────────────────────────── */
+[data-testid='stFileUploader'] {
+    border-radius: 12px !important;
+}
+[data-testid='stFileUploader'] > section {
+    border-radius: 12px !important;
+    border: 1.5px dashed rgba(79,107,237,0.30) !important;
+    background: rgba(79,107,237,0.03) !important;
+}
+
+/* ─── Slider ────────────────────────────────────────────────────────── */
+[data-testid='stSlider'] {
+    padding: 4px 0;
+}
+
+/* ─── Selectbox / radio ─────────────────────────────────────────────── */
+[data-baseweb='select'] > div {
+    border-radius: 10px !important;
+}
+[data-testid='stSelectbox'] {
+    font-size: 14px !important;
+}
+
+/* ─── Progress bar ──────────────────────────────────────────────────── */
+[data-testid='stProgress'] > div > div {
+    border-radius: 6px !important;
+}
+
+/* ─── Status widget ─────────────────────────────────────────────────── */
+[data-testid='stStatus'] {
+    border-radius: 12px !important;
+    border: 1px solid rgba(226,229,241,0.8) !important;
+}
+
+/* ─── Divider ───────────────────────────────────────────────────────── */
+hr {
+    border-color: rgba(226,229,241,0.8) !important;
+    margin: 1.5rem 0 !important;
+}
+
+/* ─── Sidebar hidden by default ─────────────────────────────────────── */
 [data-testid='stSidebar'] { display: none !important; }
 [data-testid='stSidebarCollapsedControl'] { display: none !important; }
 

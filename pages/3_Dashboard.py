@@ -83,29 +83,68 @@ def _sitc_label(value: str) -> str:
 
 DASHBOARD_CSS = r"""
 <style>
-/* Dashboard satu-satunya halaman yang menampilkan sidebar. */
+/* ─── Dashboard: unhide sidebar ─────────────────────────────────────── */
 [data-testid='stSidebar'] {
     display: block !important;
-    background: #F4F3F3;
-    border-right: 1px solid #D8D8D8;
-    min-width: 260px;
+    background: rgba(255,255,255,0.95) !important;
+    border-right: 1px solid rgba(226,229,241,0.8) !important;
+    min-width: 265px;
+    box-shadow: 2px 0 12px rgba(79,107,237,0.06);
 }
 [data-testid='stSidebarCollapsedControl'] { display: block !important; }
-[data-testid='stSidebar'] > div:first-child { padding-top: 1rem; }
+[data-testid='stSidebar'] > div:first-child { padding-top: 1.25rem; }
+
+/* Sidebar text */
 [data-testid='stSidebar'] [data-testid='stMarkdownContainer'] p,
 [data-testid='stSidebar'] label,
 [data-testid='stSidebar'] label span,
 [data-testid='stSidebar'] [role='radiogroup'] p,
 [data-testid='stSidebar'] [data-testid='stWidgetLabel'] {
-    color: #292929 !important;
+    color: #1A1C2E !important;
     font-size: 14px !important;
+    font-family: 'Inter', system-ui, sans-serif !important;
     line-height: 1.5 !important;
 }
-[data-testid='stSidebar'] [role='radiogroup'] label { padding-top: 5px; padding-bottom: 5px; font-weight: 500 !important; }
-.side-brand { padding: 8px 4px 16px 4px; border-bottom: 1px solid #D9D9D9; margin-bottom: 15px; }
-.side-brand-title { font-size: 16px; font-weight: 700; color: #1E1E1E; line-height: 1.45; }
-.side-section-label { font-size: 11px; letter-spacing: .10em; font-weight: 700; color: #686868; margin: 14px 0 8px 2px; }
-.sidebar-footer-caption { margin-top: 10px; text-align: center; font-size: 12px; color: #666666; }
+[data-testid='stSidebar'] [role='radiogroup'] label {
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-weight: 500 !important;
+}
+
+/* Sidebar brand block */
+.side-brand {
+    padding: 6px 4px 18px 4px;
+    border-bottom: 1px solid rgba(226,229,241,0.9);
+    margin-bottom: 16px;
+}
+.side-brand-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1A1C2E;
+    line-height: 1.5;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Sidebar section label */
+.side-section-label {
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    color: #6B7280;
+    text-transform: uppercase;
+    margin: 16px 0 8px 2px;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Sidebar footer */
+.sidebar-footer-caption {
+    margin-top: 12px;
+    text-align: center;
+    font-size: 11.5px;
+    color: #9CA3AF;
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.5;
+}
 </style>
 """
 
