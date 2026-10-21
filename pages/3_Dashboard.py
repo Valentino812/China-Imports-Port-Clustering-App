@@ -1028,8 +1028,16 @@ def _render_data(result: dict) -> None:
         "Baris setelah agregasi Pelabuhan × SITC": f"{report['rows_aggregated']:,}",
         "Pelabuhan tanpa pemetaan data provinsi": f"{report['province']['rows_unmapped_port']:,}",
         "Baris duplikat yang dibersihkan": f"{report['cleaning']['duplicates_removed']:,}",
-        "Baris dataset final siap model": f"{report['rows_final']:,}",
+        "Baris dataset final prapemrosesan": f"{report['rows_final']:,}",
     }
+    exclusions = report.get("exclusions", {})
+    if exclusions.get("file_rows"):
+        summary["Observasi dikecualikan sebelum modeling"] = (
+            f"{exclusions.get('rows_excluded', 0):,}"
+        )
+        summary["Observasi dipakai modeling"] = (
+            f"{exclusions.get('rows_after', report['rows_final']):,}"
+        )
     st.dataframe(
         pd.DataFrame({"Tahapan": list(summary), "Nilai": list(summary.values())}),
         width="stretch",
@@ -1037,8 +1045,15 @@ def _render_data(result: dict) -> None:
     )
     st.caption(
         "Tabel ini merangkum jumlah baris data pada setiap tahapan prapemrosesan, "
-        "mulai dari data impor mentah hingga dataset final yang siap digunakan sebagai input model."
+        "mulai dari data impor mentah hingga dataset final. Jika daftar pengecualian "
+        "digunakan, dataset berlabel klaster hanya memuat observasi yang dipakai modeling."
     )
+    if exclusions.get("file_rows"):
+        st.caption(
+            f"Daftar pengecualian memuat {exclusions.get('unique_pairs', 0):,} pasangan "
+            f"unik port–SITC; {exclusions.get('matched_pairs', 0):,} cocok dan "
+            f"{exclusions.get('unmatched_pairs', 0):,} tidak ditemukan pada dataset."
+        )
     with st.expander("Detail penanganan outlier (IQR capping) dan imputasi median:"):
         st.json({"capping": report["capping"], "median_imputed": report["cleaning"]["median_imputed"]})
 
