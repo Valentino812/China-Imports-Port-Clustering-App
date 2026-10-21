@@ -614,18 +614,31 @@ def cap_outliers(series: pd.Series, multiplier: int = IQR_MULTIPLIER) -> pd.Seri
 
 
 def apply_iqr_capping(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """IQR cap ``usd_value`` per SITC and other numeric features globally."""
+    """IQR cap every numeric feature and report the affected rows.
+
+    ``usd_value`` is capped per SITC, while the other numeric features are
+    capped globally. The report includes one entry per feature plus the number
+    of unique rows affected by at least one feature.
+    """
     out = df.copy()
+
     before_usd = out["usd_value"].copy()
     out["usd_value"] = out.groupby("sitc")["usd_value"].transform(cap_outliers)
-    capped_mask = (before_usd != out["usd_value"]) & before_usd.notna()
-    report: dict[str, Any] = {"usd_value": int(capped_mask.sum())}
+    masks = {
+        "usd_value": (before_usd != out["usd_value"]) & before_usd.notna()
+    }
 
     for col in OTHER_NUMERIC_COLS:
         before = out[col].copy()
         out[col] = cap_outliers(out[col])
-        report[col] = int(((before != out[col]) & before.notna()).sum())
+        masks[col] = (before != out[col]) & before.notna()
 
+    report: dict[str, Any] = {
+        col: int(mask.sum()) for col, mask in masks.items()
+    }
+    report["rows_any_capped"] = int(
+        pd.concat(masks, axis=1).any(axis=1).sum()
+    )
     report["total_rows_capped_usd_value"] = report["usd_value"]
     return out, report
 

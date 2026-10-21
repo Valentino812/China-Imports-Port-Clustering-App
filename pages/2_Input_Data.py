@@ -23,6 +23,13 @@ from src.preprocessing import (
     validate_columns,
 )
 
+CAPPING_LABELS = {
+    "usd_value": ("Nilai impor (USD)", "Per SITC"),
+    "pdrb": ("PDRB", "Global"),
+    "china_investment_us_ribu": ("Investasi Tiongkok", "Global"),
+    "micro_small_industries": ("Jumlah industri mikro dan kecil", "Global"),
+}
+
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
@@ -135,8 +142,36 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
             f"- Baris setelah agregasi Pelabuhan × SITC: **{pre_report['rows_aggregated']:,}**\n"
             f"- Pelabuhan tanpa pemetaan data provinsi: **{pre_report['province']['rows_unmapped_port']:,}**\n"
             f"- Baris duplikat yang dibersihkan: **{pre_report['cleaning']['duplicates_removed']:,}**\n"
-            f"- Pembatasan outlier (IQR Capping) pada `usd_value` per SITC: **{pre_report['capping']['usd_value']:,}** baris"
+            f"- Pembatasan outlier (IQR capping): diterapkan pada seluruh fitur numerik "
+            "(rincian di bawah)"
         )
+
+        capping = pre_report["capping"]
+        total_rows = max(int(pre_report["rows_final"]), 1)
+        capping_table = pd.DataFrame(
+            [
+                {
+                    "Fitur": label,
+                    "Cakupan": scope,
+                    "Jumlah Baris": int(capping.get(column, 0)),
+                    "Persentase": (
+                        f"{capping.get(column, 0) / total_rows * 100:.2f}%"
+                    ),
+                }
+                for column, (label, scope) in CAPPING_LABELS.items()
+            ]
+        )
+        st.markdown("**Pembatasan Outlier (IQR Capping) per Fitur Numerik**")
+        st.dataframe(capping_table, width="stretch", hide_index=True)
+        st.caption(
+            f"Persentase dihitung terhadap {total_rows:,} baris dataset final. "
+            "Jumlah menunjukkan baris observasi yang nilainya diubah, bukan jumlah nilai unik."
+        )
+        if "rows_any_capped" in capping:
+            st.caption(
+                f"Sebanyak {capping['rows_any_capped']:,} baris terpengaruh capping "
+                "pada minimal satu fitur numerik."
+            )
 
 
 def render() -> None:
