@@ -196,6 +196,12 @@ def elbow_line(elbow_df: pd.DataFrame, selected_k: int) -> go.Figure:
     )
     fig.add_vline(x=selected_k, line_dash="dash", line_color="#555555")
     fig.add_annotation(x=selected_k, y=elbow_df["Cost"].max(), text=f"K aktif = {selected_k}")
+    fig.update_xaxes(
+        tickmode="linear",
+        tick0=elbow_df["K"].min(),
+        dtick=1,
+        range=[elbow_df["K"].min() - 0.2, elbow_df["K"].max() + 0.2],
+    )
     return _style(fig, height=380, title="Elbow Method untuk K-Prototypes")
 
 
@@ -544,7 +550,7 @@ def kprototypes_silhouette_samples(
     :mod:`src.modeling`, so the mean of the returned values matches the score
     reported by the evaluation pipeline.
     """
-    empty = pd.DataFrame(columns=["Cluster", "Silhouette"])
+    empty = pd.DataFrame(columns=["Row", "Cluster", "Silhouette"])
     if X_model is None or labels is None:
         return empty
 
@@ -567,9 +573,11 @@ def kprototypes_silhouette_samples(
 
     if n_rows > sample_size:
         indices = np.random.RandomState(random_state).permutation(n_rows)[:sample_size]
+        row_positions = indices
         X_sample = X_model.iloc[indices].reset_index(drop=True)
         labels_sample = labels[indices]
     else:
+        row_positions = np.arange(n_rows)
         X_sample = X_model.reset_index(drop=True)
         labels_sample = labels
 
@@ -584,7 +592,11 @@ def kprototypes_silhouette_samples(
 
     values = silhouette_samples(distances, labels_sample, metric="precomputed")
     return pd.DataFrame(
-        {"Cluster": labels_sample.astype(int), "Silhouette": values}
+        {
+            "Row": row_positions,
+            "Cluster": labels_sample.astype(int),
+            "Silhouette": values,
+        }
     )
 
 

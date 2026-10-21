@@ -37,7 +37,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.preprocessing import CATEGORICAL_COLS, FEATURE_COLS, NUMERICAL_COLS
 
-K_RANGE = range(2, 8)
+K_RANGE = range(2, 13)
 OPTIMAL_K = 4
 SILHOUETTE_SAMPLE_SIZE = 2500
 

@@ -253,11 +253,11 @@ def render() -> None:
     st.slider(
         "Jumlah klaster (K)",
         min_value=2,
-        max_value=7,
+        max_value=12,
         value=int(st.session_state.get("n_clusters", 4)),
         step=1,
         key="n_clusters",
-        help="Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–7.",
+        help="Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–12.",
     )
     st.caption(
         "⚙️ Fitur yang digunakan dalam pemodelan:\n\n"

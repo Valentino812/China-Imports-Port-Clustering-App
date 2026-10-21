@@ -732,6 +732,68 @@ def _render_evaluation(result: dict) -> None:
                     width="stretch",
                     hide_index=True,
                 )
+
+                if "Row" not in silhouette_df.columns:
+                    st.warning(
+                        "Kolom indeks observasi tidak tersedia sehingga unduhan silhouette "
+                        "tidak dapat disiapkan. Jalankan ulang analisis."
+                    )
+                else:
+                    metadata = (
+                        modeling["clustered"][["port", "sitc"]]
+                        .reset_index(drop=True)
+                    )
+                    metadata["Row"] = metadata.index
+                    silhouette_export = silhouette_df.merge(
+                        metadata, on="Row", how="left"
+                    )
+
+                    silhouette_all = (
+                        silhouette_export[["port", "sitc", "Silhouette"]]
+                        .rename(columns={"Silhouette": "silhouette"})
+                        .sort_values(["port", "sitc"])
+                        .reset_index(drop=True)
+                    )
+                    silhouette_negative = (
+                        silhouette_export.loc[
+                            silhouette_export["Silhouette"] < 0, ["port", "sitc"]
+                        ]
+                        .sort_values(["port", "sitc"])
+                        .reset_index(drop=True)
+                    )
+
+                    download_col1, download_col2 = st.columns(2)
+                    with download_col1:
+                        st.download_button(
+                            "Unduh Nilai Silhouette Seluruh Data (CSV)",
+                            data=silhouette_all.to_csv(index=False).encode(
+                                "utf-8-sig"
+                            ),
+                            file_name="silhouette_seluruh_data.csv",
+                            mime="text/csv",
+                            key="download_silhouette_all",
+                            width="stretch",
+                        )
+                    with download_col2:
+                        st.download_button(
+                            "Unduh Daftar Silhouette Negatif (CSV)",
+                            data=silhouette_negative.to_csv(index=False).encode(
+                                "utf-8-sig"
+                            ),
+                            file_name="silhouette_negatif.csv",
+                            mime="text/csv",
+                            key="download_silhouette_negative",
+                            width="stretch",
+                            disabled=silhouette_negative.empty,
+                        )
+                    if sampled:
+                        st.caption(
+                            "Unduhan mengikuti observasi yang diplot pada Silhouette Plot. "
+                            f"Karena data melebihi 2.500 observasi, berkas berisi sampel "
+                            f"deterministik {len(silhouette_df):,} observasi "
+                            "(random_state=42)."
+                        )
+
                 st.caption(
                     "Ringkasan statistik nilai silhouette per klaster, mencakup jumlah observasi, "
                     "rata-rata, nilai minimum, maksimum, dan proporsi observasi dengan nilai silhouette "
@@ -797,14 +859,6 @@ def _render_evaluation(result: dict) -> None:
         "— bukan akurasi terhadap data asli. Semakin dominan elemen diagonal, semakin tinggi fidelity "
         "surrogate, dan semakin dapat dipercaya nilai SHAP sebagai cerminan logika pengelompokan K-Prototypes."
     )
-
-    # st.download_button(
-    #     "Unduh Metrik Evaluasi Surrogate (CSV)",
-    #     data=surrogate["metrics"].to_csv(index=False).encode("utf-8-sig"),
-    #     file_name="evaluasi_surrogate.csv",
-    #     mime="text/csv",
-    #     key="download_eval_metrics",
-    # )
 
 
 # ---------------------------------------------------------------------------
