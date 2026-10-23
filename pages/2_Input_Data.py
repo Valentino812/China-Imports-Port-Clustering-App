@@ -14,12 +14,10 @@ import streamlit as st
 from src.modeling import run_modeling
 from src.preprocessing import (
     CONVERSION_REQUIRED,
-    EXCLUSIONS_REQUIRED,
     GEOLOCATION_REQUIRED,
     IMPORTS_REQUIRED,
     PROVINCES_REQUIRED,
     align_columns,
-    filter_port_sitc_exclusions,
     read_table,
     run_preprocessing,
     validate_columns,
@@ -61,20 +59,8 @@ def _store_upload(kind: str, upload) -> None:
         "provinces": PROVINCES_REQUIRED,
         "conversion": CONVERSION_REQUIRED,
         "geolocation": GEOLOCATION_REQUIRED,
-        "exclusions": EXCLUSIONS_REQUIRED,
     }[kind]
     valid, message = validate_columns(df, required, upload.name)
-    if valid and kind == "exclusions":
-        check = align_columns(df, EXCLUSIONS_REQUIRED)
-        blank = check[EXCLUSIONS_REQUIRED].isna() | check[
-            EXCLUSIONS_REQUIRED
-        ].astype("string").apply(lambda column: column.str.strip() == "")
-        if blank.any().any():
-            valid = False
-            message = (
-                "Daftar pengecualian memiliki nilai port atau sitc yang kosong. "
-                "Lengkapi atau hapus baris tersebut."
-            )
     st.session_state[f"{kind}_bytes"] = content
     st.session_state[f"{kind}_name"] = upload.name
     st.session_state[f"{kind}_df"] = df
@@ -83,22 +69,6 @@ def _store_upload(kind: str, upload) -> None:
     st.session_state[key] = signature
     st.session_state["analysis_result"] = None
     st.session_state["analysis_signature"] = None
-
-
-def _clear_exclusions() -> None:
-    st.session_state["exclusions_bytes"] = None
-    st.session_state["exclusions_name"] = None
-    st.session_state["exclusions_df"] = None
-    st.session_state["exclusions_valid"] = True
-    st.session_state["exclusions_message"] = None
-    st.session_state["exclusions_signature"] = None
-    st.session_state["analysis_result"] = None
-    st.session_state["analysis_signature"] = None
-
-
-def _handle_exclusions_removed() -> None:
-    if not st.session_state.get("upload_exclusions"):
-        _clear_exclusions()
 
 
 def _reset_input_data() -> None:
@@ -113,7 +83,6 @@ def _current_signature() -> tuple:
         st.session_state.get("provinces_signature"),
         st.session_state.get("conversion_signature"),
         st.session_state.get("geolocation_signature"),
-        st.session_state.get("exclusions_signature"),
         int(st.session_state.get("n_clusters", 4)),
     )
 
@@ -146,7 +115,7 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     clustered = model_result["clustered"]
     st.subheader("Ringkasan Hasil Pemodelan")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Observasi Modeling", f"{len(clustered):,}")
+    c1.metric("Observasi Final", f"{pre_report['rows_final']:,}")
     c2.metric("Jumlah Pelabuhan", f"{clustered['port'].nunique():,}")
     c3.metric("Cakupan Provinsi", f"{clustered['Provinsi'].nunique():,}")
     c4.metric("Jumlah Klaster (K)", str(model_result["config"]["n_clusters"]))
@@ -210,23 +179,6 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
                 "pada minimal satu fitur numerik."
             )
 
-        exclusions = pre_report.get("exclusions", {})
-        if exclusions.get("file_rows"):
-            st.markdown(
-                "**Pengecualian Observasi Sebelum Modeling**\n"
-                f"- Baris pada berkas: **{exclusions['file_rows']:,}**\n"
-                f"- Pasangan unik: **{exclusions['unique_pairs']:,}**\n"
-                f"- Pasangan cocok: **{exclusions['matched_pairs']:,}**\n"
-                f"- Pasangan tidak cocok: **{exclusions['unmatched_pairs']:,}**\n"
-                f"- Observasi dikecualikan: **{exclusions['rows_excluded']:,}**\n"
-                f"- Observasi dipakai modeling: **{exclusions['rows_after']:,}**"
-            )
-            if exclusions.get("unmatched_pairs"):
-                st.warning(
-                    f"{exclusions['unmatched_pairs']:,} pasangan port–SITC tidak ditemukan "
-                    "pada dataset. Periksa kembali nama pelabuhan dan kode SITC."
-                )
-
 
 def render() -> None:
     st.title("Input Data & Konfigurasi")
@@ -249,7 +201,6 @@ def render() -> None:
                 "provinces_df",
                 "conversion_df",
                 "geolocation_df",
-                "exclusions_df",
                 "analysis_result",
             )
         )
@@ -261,8 +212,8 @@ def render() -> None:
             width="stretch",
             disabled=not has_session_data,
             help=(
-                "Menghapus seluruh berkas input, daftar pengecualian, dan hasil analisis "
-                "pada sesi ini. Nilai K tetap dipertahankan. Tindakan ini tidak dapat dibatalkan."
+                "Menghapus seluruh berkas input dan hasil analisis pada sesi ini. "
+                "Nilai K tetap dipertahankan. Tindakan ini tidak dapat dibatalkan."
             ),
         )
     up1, up2 = st.columns(2)
@@ -319,61 +270,17 @@ def render() -> None:
             GEOLOCATION_REQUIRED,
         )
 
-    # ------------------------------------------------------------------
-    # Optional exclusions
-    # ------------------------------------------------------------------
-    st.subheader("2 · Pengecualian Observasi (Opsional)")
-    st.caption(
-        "Bagian ini bersifat opsional. Unggah CSV berisi pasangan `port` dan `sitc` yang akan "
-        "dikeluarkan sebelum pemodelan K-Prototypes. Format kolom sama dengan berkas "
-        "`silhouette_negatif.csv` yang dapat diunduh dari tab Evaluasi Dashboard melalui "
-        "tombol **Unduh Daftar Silhouette Negatif (CSV)**. Pengecualian ini bertujuan untuk menyingkirkan "
-        "observasi dengan silhouette negatif agar model dilatih ulang tanpa observasi "
-        "tersebut. Jika tidak ada berkas yang diunggah, seluruh observasi akan digunakan dalam pemodelan."
-    )
-    exclusions_upload = st.file_uploader(
-        "Daftar pengecualian pelabuhan × SITC (CSV, opsional)",
-        type=["csv"],
-        key="upload_exclusions",
-        help="Kolom wajib: port, sitc. Kolom tambahan seperti silhouette diabaikan.",
-        on_change=_handle_exclusions_removed,
-    )
-    if exclusions_upload is not None:
-        _store_upload("exclusions", exclusions_upload)
-
-    exclusions_name = st.session_state.get("exclusions_name")
-    exclusions_df = st.session_state.get("exclusions_df")
-    if exclusions_name is None:
-        st.caption(
-            "Tidak ada daftar pengecualian; seluruh observasi akan digunakan."
-        )
-    elif st.session_state.get("exclusions_valid") and exclusions_df is not None:
-        st.success(
-            f"Daftar pengecualian valid · `{exclusions_name}` · "
-            f"{len(exclusions_df):,} baris"
-        )
-    else:
-        st.error(
-            st.session_state.get("exclusions_message")
-            or "Daftar pengecualian tidak valid."
-        )
-
-    exclusions_ok = (
-        exclusions_name is None
-        or bool(st.session_state.get("exclusions_valid"))
-    )
     all_valid = bool(
         st.session_state.get("imports_valid")
         and st.session_state.get("provinces_valid")
         and st.session_state.get("conversion_valid")
         and st.session_state.get("geolocation_valid")
-        and exclusions_ok
     )
 
     # ------------------------------------------------------------------
     # Configuration + process
     # ------------------------------------------------------------------
-    st.subheader("3 · Parameter & Konfigurasi Klasterisasi")
+    st.subheader("2 · Parameter & Konfigurasi Klasterisasi")
     st.session_state.setdefault("n_clusters", 4)
     st.slider(
         "Jumlah klaster (K)",
@@ -421,7 +328,7 @@ def render() -> None:
         progress = st.progress(0, text="Menginisialisasi pipeline analisis...")
         try:
             with st.status("Menjalankan prapemrosesan dan pemodelan klaster...", expanded=True) as status:
-                st.write("1/3 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi & geolokasi pelabuhan, dan IQR capping.")
+                st.write("1/2 · Prapemrosesan: konversi HS–SITC, agregasi transaksi, pemetaan provinsi & geolokasi pelabuhan, dan IQR capping.")
                 pre_result = run_preprocessing(
                     align_columns(st.session_state["imports_df"], IMPORTS_REQUIRED),
                     align_columns(st.session_state["provinces_df"], PROVINCES_REQUIRED),
@@ -430,31 +337,13 @@ def render() -> None:
                 )
                 progress.progress(0.35, text="Tahap prapemrosesan data selesai.")
 
-                st.write("2/3 · Menerapkan daftar pengecualian observasi (jika tersedia).")
-                df_model, exclusion_report = filter_port_sitc_exclusions(
-                    pre_result["df_final"],
-                    st.session_state.get("exclusions_df"),
-                )
-                pre_result["report"]["exclusions"] = exclusion_report
-                if exclusion_report["file_rows"]:
-                    st.write(
-                        f"{exclusion_report['rows_excluded']:,} observasi dikecualikan; "
-                        f"{exclusion_report['rows_after']:,} observasi dipakai modeling."
-                    )
-                    if exclusion_report["unmatched_pairs"]:
-                        st.warning(
-                            f"{exclusion_report['unmatched_pairs']:,} pasangan port–SITC "
-                            "tidak ditemukan pada dataset."
-                        )
-                progress.progress(0.40, text="Penerapan pengecualian selesai.")
-
-                st.write("3/3 · Pemodelan: K-Prototypes, evaluasi Elbow & Silhouette, model surrogate, dan analisis SHAP.")
+                st.write("2/2 · Pemodelan: K-Prototypes, evaluasi Elbow & Silhouette, model surrogate, dan analisis SHAP.")
 
                 def _cb(fraction: float, text: str) -> None:
-                    progress.progress(min(0.40 + 0.60 * fraction, 1.0), text=text)
+                    progress.progress(min(0.35 + 0.65 * fraction, 1.0), text=text)
 
                 model_result = run_modeling(
-                    df_model,
+                    pre_result["df_final"],
                     n_clusters=int(st.session_state["n_clusters"]),
                     progress_callback=_cb,
                 )

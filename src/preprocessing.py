@@ -43,7 +43,6 @@ PROVINCES_REQUIRED = [
     "micro_small_industries",
 ]
 GEOLOCATION_REQUIRED = ["port", "Provinsi", "latitude", "longitude"]
-EXCLUSIONS_REQUIRED = ["port", "sitc"]
 CONVERSION_REQUIRED = ["From HS 2022", "To SITC Rev. 4"]
 
 CATEGORICAL_COLS = ["sitc"]
@@ -642,80 +641,6 @@ def apply_iqr_capping(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     )
     report["total_rows_capped_usd_value"] = report["usd_value"]
     return out, report
-
-
-def filter_port_sitc_exclusions(
-    df: pd.DataFrame,
-    exclusions_df: pd.DataFrame | None,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Remove port x SITC observations listed in an optional exclusion table.
-
-    The exclusion file only needs ``port`` and ``sitc`` columns. Extra columns
-    are ignored. Matching is exact after trimming whitespace. When every row is
-    excluded the caller receives a ``ValueError`` instead of an empty dataset.
-    """
-    rows_before = int(len(df))
-    report: dict[str, Any] = {
-        "file_rows": 0,
-        "unique_pairs": 0,
-        "matched_pairs": 0,
-        "unmatched_pairs": 0,
-        "unmatched_examples": [],
-        "invalid_rows": 0,
-        "rows_before": rows_before,
-        "rows_excluded": 0,
-        "rows_after": rows_before,
-    }
-    if exclusions_df is None or exclusions_df.empty:
-        return df.copy().reset_index(drop=True), report
-
-    valid, message = validate_columns(
-        exclusions_df, EXCLUSIONS_REQUIRED, "daftar pengecualian"
-    )
-    if not valid:
-        raise ValueError(message)
-
-    ex = align_columns(exclusions_df, EXCLUSIONS_REQUIRED).copy()
-    ex["port"] = ex["port"].astype("string").str.strip()
-    ex["sitc"] = ex["sitc"].astype("string").str.strip()
-    ex = ex.replace({"port": {"": pd.NA}, "sitc": {"": pd.NA}})
-
-    invalid_rows = int(ex[EXCLUSIONS_REQUIRED].isna().any(axis=1).sum())
-    file_rows = int(len(ex))
-    ex = ex.dropna(subset=EXCLUSIONS_REQUIRED).drop_duplicates()
-
-    keys = set(zip(ex["port"].astype(str), ex["sitc"].astype(str)))
-    ports = df["port"].astype(str).str.strip()
-    sitc = df["sitc"].astype(str).str.strip()
-    df_keys = set(zip(ports, sitc))
-
-    mask = pd.Series(
-        [(port, code) in keys for port, code in zip(ports, sitc)],
-        index=df.index,
-    )
-    unmatched = sorted(keys - df_keys)
-    filtered = df.loc[~mask].copy().reset_index(drop=True)
-
-    report.update(
-        {
-            "file_rows": file_rows,
-            "unique_pairs": int(len(keys)),
-            "matched_pairs": int(len(keys & df_keys)),
-            "unmatched_pairs": int(len(unmatched)),
-            "unmatched_examples": [
-                {"port": port, "sitc": code} for port, code in unmatched[:10]
-            ],
-            "invalid_rows": invalid_rows,
-            "rows_excluded": int(mask.sum()),
-            "rows_after": int(len(filtered)),
-        }
-    )
-    if filtered.empty:
-        raise ValueError(
-            "Seluruh observasi terhapus oleh daftar pengecualian. "
-            "Periksa kembali berkas pengecualian."
-        )
-    return filtered, report
 
 
 # ---------------------------------------------------------------------------
