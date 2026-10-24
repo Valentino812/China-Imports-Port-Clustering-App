@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from sklearn.metrics import pairwise_distances, silhouette_samples
 
 # Palet kualitatif kontras tinggi dan colorblind-safe (Okabe-Ito). Dipakai untuk
@@ -49,6 +50,84 @@ def cluster_color_map(cluster_values) -> dict[str, str]:
         label: QUALITATIVE_SEQUENCE[i % len(QUALITATIVE_SEQUENCE)]
         for i, label in enumerate(labels)
     }
+
+
+def cluster_numeric_stats(
+    data: pd.DataFrame,
+    numerical_cols: list[str],
+) -> pd.DataFrame:
+    """Descriptive per-cluster statistics shared by tables and figures."""
+    columns = [
+        "Klaster",
+        "Fitur",
+        "Jumlah",
+        "Mean",
+        "Std",
+        "Min",
+        "Q1",
+        "Median",
+        "Q3",
+        "Max",
+        "IQR",
+        "Jumlah Pencilan",
+    ]
+    if data is None or data.empty or "Cluster" not in data.columns:
+        return pd.DataFrame(columns=columns)
+    missing = [col for col in numerical_cols if col not in data.columns]
+    if missing:
+        return pd.DataFrame(columns=columns)
+
+    rows: list[dict[str, object]] = []
+    for cluster, group in data.groupby("Cluster", sort=True):
+        label = _cluster_label(cluster)
+        for feature in numerical_cols:
+            values = pd.to_numeric(group[feature], errors="coerce").dropna()
+            count = int(len(values))
+            if count == 0:
+                rows.append(
+                    {
+                        "Klaster": label,
+                        "Fitur": feature,
+                        "Jumlah": 0,
+                        "Mean": float("nan"),
+                        "Std": float("nan"),
+                        "Min": float("nan"),
+                        "Q1": float("nan"),
+                        "Median": float("nan"),
+                        "Q3": float("nan"),
+                        "Max": float("nan"),
+                        "IQR": float("nan"),
+                        "Jumlah Pencilan": 0,
+                    }
+                )
+                continue
+
+            q1 = float(values.quantile(0.25))
+            median = float(values.median())
+            q3 = float(values.quantile(0.75))
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            outliers = values[(values < lower) | (values > upper)]
+            std = float(values.std(ddof=1)) if count > 1 else float("nan")
+
+            rows.append(
+                {
+                    "Klaster": label,
+                    "Fitur": feature,
+                    "Jumlah": count,
+                    "Mean": float(values.mean()),
+                    "Std": std,
+                    "Min": float(values.min()),
+                    "Q1": q1,
+                    "Median": median,
+                    "Q3": q3,
+                    "Max": float(values.max()),
+                    "IQR": float(iqr),
+                    "Jumlah Pencilan": int(len(outliers)),
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
 
 
 def _empty_figure(message: str) -> go.Figure:
@@ -125,27 +204,368 @@ def cluster_pie(cluster_structure: pd.DataFrame) -> go.Figure:
     return _style(fig, title="Proporsi Klaster")
 
 
-def numeric_boxplots(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure:
+def _format_number(value: object, number_format: str) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    try:
+        return format(float(value), number_format)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    color = hex_color.lstrip("#")
+    red, green, blue = (int(color[index:index + 2], 16) for index in (0, 2, 4))
+    return f"rgba({red},{green},{blue},{alpha})"
+
+
+def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure:
     if not numerical_cols:
-        return _empty_figure("Tidak ada fitur numerik untuk boxplot.")
-    long_df = data.melt(
-        id_vars=["Cluster"], value_vars=numerical_cols, var_name="Fitur", value_name="Nilai"
-    )
+        return _empty_figure("Tidak ada fitur numerik.")
+    means = data.groupby("Cluster")[numerical_cols].mean().reset_index()
+    long_df = means.melt(id_vars="Cluster", var_name="Fitur", value_name="Rata-rata")
     long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
     colors = cluster_color_map(long_df["Label"])
-    fig = px.box(
+    fig = px.bar(
         long_df,
         x="Label",
-        y="Nilai",
+        y="Rata-rata",
         color="Label",
         facet_col="Fitur",
         facet_col_wrap=2,
         color_discrete_map=colors,
         category_orders={"Label": list(colors)},
+        text="Rata-rata",
     )
+    fig.update_traces(texttemplate="%{text:.3g}", textposition="outside")
     fig.update_yaxes(matches=None, showticklabels=True)
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(showlegend=False)
-    return _style(fig, height=420, title="Distribusi Fitur Numerik per Klaster")
+    return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster (satuan asli)")
+
+
+def cluster_boxplots(
+    data: pd.DataFrame,
+    stats: pd.DataFrame,
+    numerical_cols: list[str],
+    feature_labels: dict[str, str],
+    title: str | None = None,
+    log_usd: bool = False,
+    number_formats: dict[str, str] | None = None,
+) -> go.Figure:
+    """Combined 2x2 boxplot panel for all numeric features."""
+    if data is None or data.empty or "Cluster" not in data.columns:
+        return _empty_figure("Data fitur numerik tidak tersedia.")
+    if not numerical_cols:
+        return _empty_figure("Tidak ada fitur numerik untuk boxplot.")
+
+    missing = [col for col in numerical_cols if col not in data.columns]
+    if missing:
+        return _empty_figure(
+            "Kolom fitur numerik tidak lengkap: " + ", ".join(missing)
+        )
+
+    number_formats = number_formats or {}
+    cluster_labels = sorted(
+        {_cluster_label(value) for value in data["Cluster"].dropna()},
+        key=_cluster_sort_key,
+    )
+    colors = cluster_color_map(cluster_labels)
+    rows = 1 if len(numerical_cols) <= 2 else 2
+    cols = 1 if len(numerical_cols) == 1 else 2
+    fig = make_subplots(
+        rows=rows,
+        cols=cols,
+        subplot_titles=[feature_labels.get(col, col) for col in numerical_cols],
+        vertical_spacing=0.14,
+        horizontal_spacing=0.08,
+    )
+
+    total_excluded = 0
+    added_traces = 0
+
+    for index, feature in enumerate(numerical_cols):
+        row = index // 2 + 1
+        col = index % 2 + 1
+        number_format = number_formats.get(feature, ",.2f")
+        df = data[["Cluster", feature]].copy()
+        df[feature] = pd.to_numeric(df[feature], errors="coerce")
+        df = df.dropna(subset=[feature])
+        use_log = bool(log_usd and feature == "usd_value")
+        if use_log:
+            total_excluded += int((df[feature] <= 0).sum())
+            df = df[df[feature] > 0].copy()
+
+        df["Label"] = df["Cluster"].apply(_cluster_label)
+
+        for label in cluster_labels:
+            values = df.loc[df["Label"] == label, feature].to_numpy(dtype=float)
+            if len(values) == 0:
+                continue
+
+            row_df = (
+                stats[(stats["Klaster"] == label) & (stats["Fitur"] == feature)]
+                if stats is not None and not stats.empty
+                else pd.DataFrame()
+            )
+            if row_df.empty:
+                series = pd.Series(values)
+                q1 = float(series.quantile(0.25))
+                median = float(series.median())
+                q3 = float(series.quantile(0.75))
+                iqr = q3 - q1
+                lower = q1 - 1.5 * iqr
+                upper = q3 + 1.5 * iqr
+                outliers = int(((series < lower) | (series > upper)).sum())
+                count = int(len(series))
+                mean = float(series.mean())
+                std = float(series.std(ddof=1)) if count > 1 else float("nan")
+            else:
+                stats_row = row_df.iloc[0]
+                count = int(stats_row["Jumlah"])
+                mean = stats_row["Mean"]
+                std = stats_row["Std"]
+                q1 = stats_row["Q1"]
+                median = stats_row["Median"]
+                q3 = stats_row["Q3"]
+                iqr = stats_row["IQR"]
+                outliers = int(stats_row["Jumlah Pencilan"])
+
+            customdata = [
+                [
+                    count,
+                    _format_number(mean, number_format),
+                    _format_number(std, number_format),
+                    _format_number(q1, number_format),
+                    _format_number(median, number_format),
+                    _format_number(q3, number_format),
+                    _format_number(iqr, number_format),
+                    outliers,
+                ]
+            ] * len(values)
+
+            fig.add_trace(
+                go.Box(
+                    x=[label] * len(values),
+                    y=values,
+                    name=label,
+                    marker_color=colors[label],
+                    line_color=colors[label],
+                    boxpoints="outliers",
+                    jitter=0.3,
+                    pointpos=0,
+                    whiskerwidth=0.5,
+                    quartilemethod="linear",
+                    showlegend=False,
+                    customdata=customdata,
+                    hovertemplate=(
+                        f"<b>{label}</b><br>"
+                        "Q1: %{customdata[3]}<br>"
+                        "Median: %{customdata[4]}<br>"
+                        "Q3: %{customdata[5]}<br>"
+                        "IQR: %{customdata[6]}<br>"
+                        "Rata-rata: %{customdata[1]}<br>"
+                        "Standar deviasi: %{customdata[2]}<br>"
+                        "Jumlah pencilan: %{customdata[7]}<br>"
+                        "Jumlah observasi: %{customdata[0]}<br>"
+                        "Nilai: %{y:" + number_format + "}<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+            added_traces += 1
+
+        fig.update_xaxes(
+            title_text="Klaster",
+            type="category",
+            categoryorder="array",
+            categoryarray=cluster_labels,
+            row=row,
+            col=col,
+        )
+        feature_label = feature_labels.get(feature, feature)
+        fig.update_yaxes(
+            title_text=f"{feature_label} (skala log)" if use_log else feature_label,
+            type="log" if use_log else "linear",
+            tickformat=",.0f" if use_log else number_format,
+            row=row,
+            col=col,
+        )
+
+    if added_traces == 0:
+        return _empty_figure("Data fitur numerik tidak tersedia untuk boxplot.")
+
+    fig.update_annotations(font=dict(size=13))
+    fig = _style(fig, height=760, title=title)
+    fig.layout.meta = {
+        "log_scale": bool(log_usd),
+        "excluded_nonpositive": total_excluded,
+    }
+    return fig
+
+
+def cluster_violinplots(
+    data: pd.DataFrame,
+    stats: pd.DataFrame,
+    numerical_cols: list[str],
+    feature_labels: dict[str, str],
+    title: str | None = None,
+    log_usd: bool = False,
+    number_formats: dict[str, str] | None = None,
+) -> go.Figure:
+    """Combined violin panel showing distribution density and mean/SD per cluster."""
+    if data is None or data.empty or "Cluster" not in data.columns:
+        return _empty_figure("Data fitur numerik tidak tersedia.")
+    if not numerical_cols:
+        return _empty_figure("Tidak ada fitur numerik untuk violin plot.")
+
+    missing = [col for col in numerical_cols if col not in data.columns]
+    if missing:
+        return _empty_figure(
+            "Kolom fitur numerik tidak lengkap: " + ", ".join(missing)
+        )
+
+    number_formats = number_formats or {}
+    cluster_labels = sorted(
+        {_cluster_label(value) for value in data["Cluster"].dropna()},
+        key=_cluster_sort_key,
+    )
+    colors = cluster_color_map(cluster_labels)
+    rows = 1 if len(numerical_cols) <= 2 else 2
+    cols = 1 if len(numerical_cols) == 1 else 2
+    fig = make_subplots(
+        rows=rows,
+        cols=cols,
+        subplot_titles=[feature_labels.get(col, col) for col in numerical_cols],
+        vertical_spacing=0.14,
+        horizontal_spacing=0.08,
+    )
+
+    total_excluded = 0
+    added_traces = 0
+
+    for index, feature in enumerate(numerical_cols):
+        row = index // 2 + 1
+        col = index % 2 + 1
+        number_format = number_formats.get(feature, ",.2f")
+        df = data[["Cluster", feature]].copy()
+        df[feature] = pd.to_numeric(df[feature], errors="coerce")
+        df = df.dropna(subset=[feature])
+        use_log = bool(log_usd and feature == "usd_value")
+        if use_log:
+            total_excluded += int((df[feature] <= 0).sum())
+            df = df[df[feature] > 0].copy()
+
+        df["Label"] = df["Cluster"].apply(_cluster_label)
+
+        for label in cluster_labels:
+            values = df.loc[df["Label"] == label, feature].to_numpy(dtype=float)
+            if len(values) == 0:
+                continue
+
+            row_df = (
+                stats[(stats["Klaster"] == label) & (stats["Fitur"] == feature)]
+                if stats is not None and not stats.empty
+                else pd.DataFrame()
+            )
+            if row_df.empty:
+                series = pd.Series(values)
+                q1 = float(series.quantile(0.25))
+                median = float(series.median())
+                q3 = float(series.quantile(0.75))
+                iqr = q3 - q1
+                lower = q1 - 1.5 * iqr
+                upper = q3 + 1.5 * iqr
+                outliers = int(((series < lower) | (series > upper)).sum())
+                count = int(len(series))
+                mean = float(series.mean())
+                std = float(series.std(ddof=1)) if count > 1 else float("nan")
+            else:
+                stats_row = row_df.iloc[0]
+                count = int(stats_row["Jumlah"])
+                mean = stats_row["Mean"]
+                std = stats_row["Std"]
+                q1 = stats_row["Q1"]
+                median = stats_row["Median"]
+                q3 = stats_row["Q3"]
+                iqr = stats_row["IQR"]
+                outliers = int(stats_row["Jumlah Pencilan"])
+
+            customdata = [
+                [
+                    count,
+                    _format_number(mean, number_format),
+                    _format_number(std, number_format),
+                    _format_number(q1, number_format),
+                    _format_number(median, number_format),
+                    _format_number(q3, number_format),
+                    _format_number(iqr, number_format),
+                    outliers,
+                ]
+            ] * len(values)
+
+            fig.add_trace(
+                go.Violin(
+                    x=[label] * len(values),
+                    y=values,
+                    name=label,
+                    line=dict(color=colors[label], width=1.1),
+                    fillcolor=_hex_to_rgba(colors[label], 0.28),
+                    box=dict(visible=False),
+                    meanline=dict(
+                        visible=True,
+                        color=colors[label],
+                        width=1.2,
+                    ),
+                    points="outliers",
+                    jitter=0.25,
+                    pointpos=0,
+                    spanmode="soft",
+                    width=0.8,
+                    quartilemethod="linear",
+                    showlegend=False,
+                    customdata=customdata,
+                    hovertemplate=(
+                        f"<b>{label}</b><br>"
+                        "Nilai: %{y:" + number_format + "}<br>"
+                        "Mean: %{customdata[1]}<br>"
+                        "Standar deviasi: %{customdata[2]}<br>"
+                        "Jumlah observasi: %{customdata[0]}<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+            added_traces += 1
+
+        fig.update_xaxes(
+            title_text="Klaster",
+            type="category",
+            categoryorder="array",
+            categoryarray=cluster_labels,
+            row=row,
+            col=col,
+        )
+        feature_label = feature_labels.get(feature, feature)
+        fig.update_yaxes(
+            title_text=f"{feature_label} (skala log)" if use_log else feature_label,
+            type="log" if use_log else "linear",
+            tickformat=",.0f" if use_log else number_format,
+            row=row,
+            col=col,
+        )
+
+    if added_traces == 0:
+        return _empty_figure("Data fitur numerik tidak tersedia untuk violin plot.")
+
+    fig.update_annotations(font=dict(size=13))
+    fig = _style(fig, height=760, title=title)
+    fig.layout.meta = {
+        "log_scale": bool(log_usd),
+        "excluded_nonpositive": total_excluded,
+    }
+    return fig
 
 
 def sitc_stacked_bar(sitc_distribution: pd.DataFrame) -> go.Figure:
@@ -508,31 +928,6 @@ def feature_separation_bar(feature_stats: pd.DataFrame) -> go.Figure:
     )
     fig.update_traces(texttemplate="%{text:.3f}", textposition="outside")
     return _style(fig, height=320, title="Rasio Pemisahan Rata-rata Antar Klaster")
-
-
-def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure:
-    if not numerical_cols:
-        return _empty_figure("Tidak ada fitur numerik.")
-    means = data.groupby("Cluster")[numerical_cols].mean().reset_index()
-    long_df = means.melt(id_vars="Cluster", var_name="Fitur", value_name="Rata-rata")
-    long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
-    colors = cluster_color_map(long_df["Label"])
-    fig = px.bar(
-        long_df,
-        x="Label",
-        y="Rata-rata",
-        color="Label",
-        facet_col="Fitur",
-        facet_col_wrap=2,
-        color_discrete_map=colors,
-        category_orders={"Label": list(colors)},
-        text="Rata-rata",
-    )
-    fig.update_traces(texttemplate="%{text:.3g}", textposition="outside")
-    fig.update_yaxes(matches=None, showticklabels=True)
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    fig.update_layout(showlegend=False)
-    return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster (satuan asli)")
 
 
 def kprototypes_silhouette_samples(

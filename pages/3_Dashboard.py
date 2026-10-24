@@ -18,9 +18,12 @@ import streamlit as st
 
 from src.modeling import SILHOUETTE_SAMPLE_SIZE
 from src.visualization import (
+    cluster_boxplots,
+    cluster_numeric_stats,
     cluster_pie,
     cluster_scatter,
     cluster_size_bar,
+    cluster_violinplots,
     cluster_z_heatmap,
     confusion_heatmap,
     elbow_line,
@@ -304,6 +307,7 @@ def _render_profile(result: dict) -> None:
     numerical_cols = result["modeling"]["numerical_cols"]
     categorical_cols = result["modeling"]["categorical_cols"]
     struct = _cluster_structure(clustered)
+    stats = cluster_numeric_stats(clustered, numerical_cols)
 
     st.subheader("Distribusi Observasi per Klaster")
     overview = struct[["Cluster", "jumlah_kombinasi_Port_SITC", "persentase_dataset"]].rename(
@@ -320,23 +324,14 @@ def _render_profile(result: dict) -> None:
     )
 
     st.subheader("Statistik Deskriptif Fitur Numerik per Klaster")
-    rows = []
-    for cluster_id, group in clustered.groupby("Cluster", sort=True):
-        for feature in numerical_cols:
-            q1 = group[feature].quantile(0.25)
-            q3 = group[feature].quantile(0.75)
-            rows.append(
-                {
-                    "Klaster": cluster_id,
-                    "Fitur": feature,
-                    "Mean": round(group[feature].mean(), 3),
-                    "Median": round(group[feature].median(), 3),
-                    "Q1": round(q1, 3),
-                    "Q3": round(q3, 3),
-                    "IQR": round(q3 - q1, 3),
-                }
-            )
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    if stats.empty:
+        st.warning("Statistik fitur numerik tidak tersedia untuk dataset ini.")
+    else:
+        st.dataframe(
+            stats[["Klaster", "Fitur", "Mean", "Median", "Q1", "Q3", "IQR"]].round(3),
+            width="stretch",
+            hide_index=True,
+        )
     st.caption(
         "Statistik deskriptif (rata-rata, median, kuartil bawah Q1, kuartil atas Q3, dan rentang "
         "antarkuartil IQR) dihitung untuk setiap fitur numerik pada masing-masing klaster, "
@@ -373,23 +368,28 @@ def _render_profile(result: dict) -> None:
         "dibandingkan secara langsung."
     )
 
-    st.subheader("Lima Provinsi dengan Observasi Terbanyak per Klaster")
-    province_counts = (
-        clustered.groupby(["Cluster", "Provinsi"])
-        .size()
-        .rename("jumlah_kombinasi_Port_SITC")
-        .reset_index()
-        .sort_values(["Cluster", "jumlah_kombinasi_Port_SITC"], ascending=[True, False])
-    )
-    top_prov = province_counts.groupby("Cluster", sort=True).head(5).reset_index(drop=True)
-    top_prov = top_prov.rename(
-        columns={"Cluster": "Klaster", "jumlah_kombinasi_Port_SITC": "Jumlah Observasi"}
-    )
-    st.dataframe(top_prov, width="stretch", hide_index=True)
-    st.caption(
-        "Tabel ini menampilkan lima provinsi dengan jumlah kombinasi pelabuhan–SITC terbanyak "
-        "pada setiap klaster, diurutkan secara menurun berdasarkan jumlah observasi."
-    )
+    feature_specs = [
+        {
+            "feature": "usd_value",
+            "label": "Nilai Impor (USD)",
+            "number_format": ",.2f",
+        },
+        {
+            "feature": "pdrb",
+            "label": "PDRB",
+            "number_format": ",.2f",
+        },
+        {
+            "feature": "china_investment_us_ribu",
+            "label": "Investasi Tiongkok",
+            "number_format": ",.2f",
+        },
+        {
+            "feature": "micro_small_industries",
+            "label": "Jumlah Industri Mikro dan Kecil",
+            "number_format": ",.0f",
+        },
+    ]
 
     st.subheader("Perbandingan Rata-Rata Fitur Numerik per Klaster")
     st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
@@ -399,16 +399,68 @@ def _render_profile(result: dict) -> None:
         "antarklaster pada setiap fitur."
     )
 
-    from src.visualization import numeric_boxplots
-
-    st.subheader("Distribusi Fitur Numerik per Klaster (Boxplot)")
-    st.plotly_chart(numeric_boxplots(clustered, numerical_cols), width="stretch")
-    st.caption(
-        "Diagram kotak (boxplot) menampilkan distribusi nilai tiap fitur numerik per klaster, "
-        "mencakup median (Q2), kuartil bawah (Q1), kuartil atas (Q3), rentang antarkuartil (IQR), "
-        "dan pencilan di luar batas whisker. Visualisasi ini digunakan untuk menilai variabilitas "
-        "dan homogenitas internal setiap klaster."
+    st.subheader("Ringkasan Statistik Kuartil Atribut Numerik per Klaster")
+    log_usd_box = st.checkbox(
+        "Gunakan skala logaritmik untuk Nilai Impor (USD)",
+        key="profile_box_log_usd",
+        value=False,
     )
+
+    feature_labels = {spec["feature"]: spec["label"] for spec in feature_specs}
+    number_formats = {spec["feature"]: spec["number_format"] for spec in feature_specs}
+    box_figure = cluster_boxplots(
+        clustered,
+        stats,
+        numerical_cols,
+        feature_labels,
+        title="Ringkasan Statistik Kuartil Atribut Numerik per Klaster",
+        log_usd=log_usd_box,
+        number_formats=number_formats,
+    )
+    st.plotly_chart(box_figure, width="stretch")
+    box_caption = (
+        "Boxplot menampilkan median, kuartil pertama (Q1), kuartil ketiga (Q3), IQR, dan pencilan "
+        "untuk setiap fitur numerik per klaster. Whisker menggunakan aturan 1,5 × IQR; pencilan "
+        "di luar whisker tetap ditampilkan."
+    )
+    box_meta = dict(box_figure.layout.meta or {})
+    if box_meta.get("excluded_nonpositive"):
+        box_caption += (
+            f" Sebanyak {box_meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
+            "ditampilkan pada skala log."
+        )
+    st.caption(box_caption)
+
+    st.subheader("Pola Kepadatan Nilai Atribut Numerik Antar-Klaster")
+    log_usd_violin = st.checkbox(
+        "Gunakan skala logaritmik untuk Nilai Impor (USD)",
+        key="profile_violin_log_usd",
+        value=False,
+    )
+    violin_figure = cluster_violinplots(
+        clustered,
+        stats,
+        numerical_cols,
+        feature_labels,
+        title="Kepadatan Nilai Atribut Numerik per Klaster (satuan asli)",
+        log_usd=log_usd_violin,
+        number_formats=number_formats,
+    )
+    st.plotly_chart(violin_figure, width="stretch")
+    violin_caption = (
+        "Violin plot menunjukkan kepadatan distribusi nilai setiap atribut numerik per klaster. "
+        "Lebar violin mencerminkan kepadatan observasi, sedangkan garis mean menunjukkan rata-rata "
+        "klaster. Standar deviasi (SD) mengukur rata-rata jarak nilai observasi dari mean: semakin "
+        "besar SD, semakin lebar dan bervariasi sebaran nilai dalam klaster. Nilai mean dan SD "
+        "ditampilkan pada tooltip. Pencilan tetap ditampilkan."
+    )
+    violin_meta = dict(violin_figure.layout.meta or {})
+    if violin_meta.get("excluded_nonpositive"):
+        violin_caption += (
+            f" Sebanyak {violin_meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
+            "ditampilkan pada skala log."
+        )
+    st.caption(violin_caption)
 
     st.subheader("Heatmap Profil Klaster Berdasarkan Z-Score")
     cluster_means = clustered.groupby("Cluster", sort=True)[numerical_cols].mean()
@@ -433,7 +485,7 @@ def _render_profile(result: dict) -> None:
 
 def _render_cluster_scatters(result: dict) -> None:
     clustered = result["modeling"]["clustered"]
-    st.subheader("Sebaran Klaster: Nilai Impor terhadap Indikator Ekonomi Provinsi")
+    st.subheader("Sebaran Klaster Nilai Impor terhadap Indikator Ekonomi Provinsi")
     st.caption(
         "Setiap titik merepresentasikan satu kombinasi pelabuhan–SITC, dengan warna menunjukkan "
         "keanggotaan klaster. Sumbu menggunakan nilai asli tanpa transformasi. Aktifkan skala "
@@ -444,7 +496,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "china_investment_us_ribu",
             "y_label": "Investasi Tiongkok",
-            "title": "Sebaran Klaster: Nilai Impor vs Investasi Tiongkok",
+            "title": "Nilai Impor vs Investasi Tiongkok",
             "key": "profile_scatter_log_investment",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -456,7 +508,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "micro_small_industries",
             "y_label": "Jumlah Industri Mikro dan Kecil",
-            "title": "Sebaran Klaster: Nilai Impor vs Jumlah Industri Mikro dan Kecil",
+            "title": "Nilai Impor vs Jumlah Industri Mikro dan Kecil",
             "key": "profile_scatter_log_industries",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -468,7 +520,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "pdrb",
             "y_label": "PDRB",
-            "title": "Sebaran Klaster: Nilai Impor vs PDRB",
+            "title": "Nilai Impor vs PDRB",
             "key": "profile_scatter_log_pdrb",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -516,7 +568,7 @@ def _render_cluster_scatters(result: dict) -> None:
 
 
 def _render_shap_section(result: dict) -> None:
-    st.subheader("Analisis SHAP — Interpretasi Model Surrogate")
+    st.subheader("Analisis SHAP (Interpretasi Model Surrogate)")
     st.caption(
         "SHAP mengukur seberapa besar kontribusi setiap fitur terhadap prediksi model surrogate. "
         "Karena K-Prototypes tidak menghasilkan nilai kepentingan fitur, model surrogate dilatih "
@@ -607,7 +659,7 @@ def _render_evaluation(result: dict) -> None:
         "Tabel ini mencatat nilai total cost K-Prototypes untuk setiap nilai K yang diuji."
     )
 
-    st.subheader("Evaluasi Kohesi dan Separasi Klaster — Skor Silhouette")
+    st.subheader("Evaluasi Kohesi dan Separasi Klaster (Skor Silhouette)")
     st.caption(
         "Skor Silhouette dihitung menggunakan metrik ketidaksamaan campuran K-Prototypes: "
         "jumlah kuadrat selisih fitur numerik terstandardisasi ditambah penalti ketidakcocokan "
