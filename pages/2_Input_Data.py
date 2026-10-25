@@ -131,8 +131,7 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     sil = model_result["silhouette"]
     sil_txt = "N/A" if pd.isna(sil) else f"{sil:.4f}"
     st.caption(
-        f"📊 Skor Silhouette campuran: **{sil_txt}**"
-        f" — dihitung pada {model_result['silhouette_n']:,} observasi.\n\n"
+        f"📊 Rata-Rata Skor Silhouette: **{sil_txt}**\n\n"
         f"📈 Fidelity model surrogate (Akurasi Random Forest):"
         f" **{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f}**\n\n"
         f"🔍 Analisis SHAP: **{'✅ Tersedia' if model_result['shap'].get('available') else '⚠️ Tidak tersedia'}**"
@@ -282,13 +281,34 @@ def render() -> None:
     # ------------------------------------------------------------------
     st.subheader("2 · Parameter & Konfigurasi Klasterisasi")
     st.session_state.setdefault("n_clusters", 4)
+    if int(st.session_state["n_clusters"]) > 8:
+        st.session_state["n_clusters"] = 8
+    elif int(st.session_state["n_clusters"]) < 2:
+        st.session_state["n_clusters"] = 2
+
+    auto_optimal_k = st.checkbox(
+        "Konfigurasi jumlah klaster paling optimal",
+        key="auto_optimal_k",
+        value=False,
+        help=(
+            "Memilih jumlah klaster paling optimal"
+        ),
+    )
+    if auto_optimal_k:
+        st.session_state["n_clusters"] = 5
+
     st.slider(
         "Jumlah klaster (K)",
         min_value=2,
-        max_value=12,
+        max_value=8,
         step=1,
         key="n_clusters",
-        help="Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–12.",
+        disabled=auto_optimal_k,
+        help=(
+            "Jumlah klaster ditetapkan otomatis ke K = 5."
+            if auto_optimal_k
+            else "Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–8."
+        ),
     )
     st.caption(
         "⚙️ Fitur yang digunakan dalam pemodelan:\n\n"
