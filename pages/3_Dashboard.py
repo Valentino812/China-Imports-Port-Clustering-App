@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.config import OPTIMAL_K
 from src.modeling import SILHOUETTE_SAMPLE_SIZE
 from src.visualization import (
     cluster_boxplots,
@@ -48,7 +49,8 @@ VIEW_TITLES = {
         "Karakteristik & Profil Klaster",
         "Analisis mendalam karakteristik tiap klaster melalui statistik deskriptif fitur numerik, "
         "modus fitur kategorikal, distribusi kelompok komoditas SITC, sebaran wilayah provinsi, "
-        "dan interpretasi berbasis nilai SHAP dari model surrogate Random Forest.",
+        "dan interpretasi berbasis nilai SHAP dari model surrogate Random Forest untuk seluruh "
+        "data uji.",
     ),
     "Evaluasi": (
         "Evaluasi Model Utama dan Model Surrogate",
@@ -590,10 +592,10 @@ def _render_cluster_scatters(result: dict) -> None:
 def _render_shap_section(result: dict) -> None:
     st.subheader("Analisis SHAP (Interpretasi Model Surrogate)")
     st.caption(
-        "SHAP mengukur seberapa besar kontribusi setiap fitur terhadap prediksi model surrogate. "
-        "Karena K-Prototypes tidak menghasilkan nilai kepentingan fitur, model surrogate dilatih "
-        "untuk meniru label klasternya. Seberapa andal nilai SHAP bergantung pada seberapa baik "
-        "surrogate meniru K-Prototypes — yang dapat diperiksa melalui matriks konfusi di tab Evaluasi."
+        "SHAP mengukur kontribusi fitur terhadap prediksi model surrogate yang dilatih meniru "
+        "label K-Prototypes. Nilai dihitung untuk seluruh data uji tanpa filter label; setiap "
+        "tab mewakili satu kelas klaster. Interpretasinya bergantung "
+        "pada fidelity surrogate yang dapat diperiksa di tab Evaluasi."
     )
     shap_result = result["modeling"]["shap"]
     if not shap_result.get("available"):
@@ -606,45 +608,57 @@ def _render_shap_section(result: dict) -> None:
     st.markdown("**Kepentingan Fitur Global (Global Feature Importance)**")
     st.plotly_chart(global_shap_bar(shap_result["global_importance"]), width="stretch")
     st.caption(
-        "Diagram batang ini menampilkan rata-rata nilai absolut SHAP setiap fitur di seluruh observasi "
-        "dan klaster, sebagai ukuran kepentingan fitur secara global terhadap prediksi model surrogate."
+        "Diagram batang ini menampilkan rata-rata nilai absolut SHAP setiap fitur di seluruh "
+        "observasi data uji dan seluruh kelas klaster, sebagai ukuran kepentingan fitur secara "
+        "global terhadap prediksi model surrogate."
     )
 
-    st.markdown("**Kepentingan Fitur per Klaster (Heatmap Kontribusi)**")
+    st.markdown("**Kontribusi Fitur per Kelas Klaster (Heatmap)**")
     st.plotly_chart(
         shap_cluster_heatmap(shap_result["importance_per_cluster"]), width="stretch"
     )
     st.caption(
-        "Heatmap ini menampilkan rata-rata nilai absolut SHAP per fitur untuk setiap klaster, "
-        "sehingga perbedaan tingkat kepentingan fitur antarklaster dapat diidentifikasi."
+        "Heatmap ini menampilkan rata-rata nilai absolut SHAP per fitur untuk setiap kelas klaster "
+        "pada seluruh data uji. Setiap baris adalah kelas target model surrogate, bukan subset "
+        "observasi yang menjadi anggota klaster tersebut, sehingga perbedaan tingkat kepentingan "
+        "fitur antar kelas klaster dapat diidentifikasi."
     )
 
-    st.markdown("**Distribusi Nilai SHAP Fitur (Beeswarm)**")
+    st.markdown("**Kontribusi Fitur terhadap Setiap Kelas Klaster (Beeswarm)**")
     classes = shap_result["classes"]
     features = result["modeling"]["X_model"].loc[
         shap_result["X_eval"].index, result["modeling"]["feature_cols"]
     ]
-    tabs = st.tabs([f"Cluster {c}" for c in classes])
+    tabs = st.tabs([f"Kontribusi ke Cluster {c}" for c in classes])
     for tab, cluster_id in zip(tabs, classes):
         with tab:
             grouped_values = shap_result["grouped_by_cluster"][int(cluster_id)]
             try:
                 fig = shap_beeswarm_figure(
-                    grouped_values.to_numpy(), features, f"SHAP Beeswarm — Cluster {cluster_id}"
+                    grouped_values.to_numpy(),
+                    features,
+                    f"SHAP Beeswarm — Kontribusi ke Cluster {cluster_id}",
                 )
                 st.pyplot(fig, width="stretch")
                 st.caption(
-                    "Beeswarm menampilkan satu titik untuk setiap observasi. Posisi horizontal "
-                    "menunjukkan nilai SHAP, warna menunjukkan nilai fitur (tinggi/rendah), dan "
-                    "titik ditumpuk vertikal menurut kepadatan. Fitur diurutkan berdasarkan "
-                    "rata-rata nilai SHAP absolut; nilai positif mengindikasikan kontribusi ke "
-                    "arah prediksi klaster yang lebih tinggi, nilai negatif ke arah sebaliknya."
+                    "Setiap titik merepresentasikan satu observasi dari keseluruhan data uji "
+                    f"(n={len(grouped_values):,}) untuk kelas Cluster {cluster_id}. Sumbu horizontal "
+                    "menunjukkan nilai SHAP fitur terhadap keluaran probabilitas model surrogate untuk "
+                    "kelas tersebut: nilai positif meningkatkan skor kelas, sedangkan nilai negatif "
+                    "menurunkannya relatif terhadap nilai dasar model. Warna menunjukkan nilai fitur "
+                    "pada data uji (fitur numerik telah distandardisasi untuk model). Titik ditumpuk "
+                    "vertikal menurut kepadatan dan fitur diurutkan berdasarkan rata-rata nilai SHAP "
+                    "absolut. Nilai ini menjelaskan perilaku model surrogate, bukan hubungan kausal, "
+                    "dan tidak menunjukkan bahwa observasi tersebut termasuk anggota kelas klaster."
                 )
                 import matplotlib.pyplot as plt
 
                 plt.close(fig)
             except Exception as exc:
-                st.warning(f"Beeswarm SHAP untuk Cluster {cluster_id} tidak dapat dibuat: {exc}")
+                st.warning(
+                    f"Beeswarm SHAP untuk kontribusi ke Cluster {cluster_id} "
+                    f"tidak dapat dibuat: {exc}"
+                )
 
 
 
@@ -672,15 +686,22 @@ def _render_evaluation(result: dict) -> None:
     with tab_main:
         c1, c2, c3 = st.columns(3)
         c1.metric("Jumlah Klaster (K)", str(k))
-        c2.metric("Skor Silhouette (Campuran)", _fmt(silhouette))
+        c2.metric("Rata-Rata Skor Silhouette", _fmt(silhouette))
         c3.metric("Ukuran Sampel Evaluasi", f"{modeling['silhouette_n']:,}")
 
         st.subheader("Penentuan Jumlah Klaster Optimal dengan Metode Elbow")
         st.plotly_chart(elbow_line(elbow, k), width="stretch")
+        k_note = (
+            f"K optimal hasil evaluasi adalah K = {OPTIMAL_K}, sedangkan K yang "
+            f"digunakan pada model ini adalah K = {k}."
+        )
+        if int(k) == OPTIMAL_K:
+            k_note += " Nilai ini sama dengan K optimal."
         st.caption(
-            "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Nilai K optimal dipilih "
-            "pada titik 'siku' (elbow), yaitu saat penurunan cost mulai tidak signifikan. "
-            f"Nilai K yang digunakan pada model ini adalah K = {k}."
+            "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Nilai K optimal "
+            "dipilih pada titik 'siku' (elbow), yaitu saat penurunan cost mulai tidak "
+            f"signifikan. {k_note} Jika ingin memakai K optimal, centang opsi "
+            "“Konfigurasi jumlah klaster paling optimal” di halaman Input Data."
         )
         st.dataframe(
             elbow.rename(columns={"K": "Jumlah Klaster (K)", "Cost": "Total Cost"}).round(4),
@@ -701,7 +722,7 @@ def _render_evaluation(result: dict) -> None:
             st.warning("Skor Silhouette tidak dapat dihitung untuk konfigurasi data ini.")
         else:
             st.info(
-                f"Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
+                f"Rata-Rata Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
                 + ("(penarikan sampel deterministik, random_state=42)." if modeling["silhouette_n"] < len(modeling["clustered"]) else "(seluruh data).")
             )
 

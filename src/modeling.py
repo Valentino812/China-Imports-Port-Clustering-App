@@ -4,12 +4,16 @@ This module is a Python translation of ``k-prototypes.ipynb``:
 
 * K-Prototypes with ``init="Huang"``, ``n_init=5``, ``random_state=42`` and
   ``n_jobs=-1``.
-* Elbow curve for ``K`` in 2..7 using ``n_init=3`` (as in the notebook).
+* Elbow curve for ``K`` in 2..8 using ``n_init=3`` (as in the notebook).
 * Silhouette computed with the mixed K-Prototypes dissimilarity
   (squared Euclidean distance on standardised numeric features plus ``gamma``
   times the categorical mismatch count).
 * A Random Forest surrogate with fidelity metrics, and SHAP explanations of the
   surrogate predictions.
+
+The UI starts from ``DEFAULT_K = 4``. The evaluated optimum is ``OPTIMAL_K = 5``
+and is selected explicitly through the automatic-K option; the two values are
+intentionally different.
 
 The numeric features are standardised exactly once, here, so the frames coming
 from :mod:`src.preprocessing` remain in their original units.
@@ -35,10 +39,12 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from src.config import (
+    DEFAULT_K,
+    K_RANGE,
+)
 from src.preprocessing import CATEGORICAL_COLS, FEATURE_COLS, NUMERICAL_COLS
 
-K_RANGE = range(2, 9)
-OPTIMAL_K = 4
 SILHOUETTE_SAMPLE_SIZE = 2500
 
 
@@ -119,7 +125,7 @@ def compute_elbow(
 def fit_final_kprototypes(
     data_array: np.ndarray,
     categorical_index: list[int],
-    n_clusters: int = OPTIMAL_K,
+    n_clusters: int = DEFAULT_K,
     random_state: int = 42,
 ) -> tuple[KPrototypes, np.ndarray]:
     """Train the final K-Prototypes model with the notebook configuration."""
@@ -304,6 +310,8 @@ def compute_shap(
         background = X_train.sample(
             n=min(background_size, len(X_train)), random_state=random_state
         )
+        # Keep SHAP values on the predicted-probability scale so the dashboard's
+        # positive/negative interpretation matches the model output.
         explainer = shap.TreeExplainer(
             model,
             data=background,
@@ -381,7 +389,7 @@ def compute_shap(
 
 def run_modeling(
     df_final: pd.DataFrame,
-    n_clusters: int = OPTIMAL_K,
+    n_clusters: int = DEFAULT_K,
     progress_callback=None,
 ) -> dict[str, Any]:
     """Prepare features, fit K-Prototypes, evaluate, explain and profile."""

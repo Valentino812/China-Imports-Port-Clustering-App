@@ -643,7 +643,7 @@ def global_shap_bar(global_importance: pd.DataFrame) -> go.Figure:
 
 def shap_cluster_heatmap(importance_per_cluster: pd.DataFrame) -> go.Figure:
     if importance_per_cluster is None or importance_per_cluster.empty:
-        return _empty_figure("SHAP per klaster tidak tersedia.")
+        return _empty_figure("Kontribusi SHAP per kelas klaster tidak tersedia.")
     fig = px.imshow(
         importance_per_cluster,
         aspect="auto",
@@ -651,7 +651,7 @@ def shap_cluster_heatmap(importance_per_cluster: pd.DataFrame) -> go.Figure:
         text_auto=".4f",
         labels=dict(x="Fitur clustering", y="Kelas target surrogate", color="Mean |SHAP|"),
     )
-    return _style(fig, height=380, title="Kontribusi Fitur per Klaster (SHAP)")
+    return _style(fig, height=380, title="Kontribusi Fitur per Kelas Klaster (SHAP)")
 
 
 def confusion_heatmap(cm: np.ndarray, labels: list) -> go.Figure:
@@ -670,10 +670,13 @@ def confusion_heatmap(cm: np.ndarray, labels: list) -> go.Figure:
 
 
 def shap_beeswarm_figure(shap_values, features: pd.DataFrame, title: str):
-    """Build a SHAP beeswarm figure for one cluster.
+    """Build a class-specific SHAP beeswarm for all observations in ``X_eval``.
 
-    Each point is one observation, the horizontal position is its SHAP value,
-    the colour encodes the feature value, and points are stacked by density.
+    The caller passes class-specific SHAP values for the complete evaluation
+    set. No filter by actual or predicted cluster membership is applied: each
+    point represents one observation from the full test set, the horizontal
+    position is that observation's SHAP value for the selected class, and the
+    colour encodes the feature value.
     """
     import matplotlib
 

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import streamlit as st
 
+from src.config import DEFAULT_K, K_MAX, K_MIN, OPTIMAL_K
 from src.modeling import run_modeling
 from src.preprocessing import (
     CONVERSION_REQUIRED,
@@ -72,7 +73,7 @@ def _store_upload(kind: str, upload) -> None:
 
 
 def _reset_input_data() -> None:
-    n_clusters = st.session_state.get("n_clusters", 4)
+    n_clusters = st.session_state.get("n_clusters", DEFAULT_K)
     st.session_state.clear()
     st.session_state["n_clusters"] = n_clusters
 
@@ -83,7 +84,7 @@ def _current_signature() -> tuple:
         st.session_state.get("provinces_signature"),
         st.session_state.get("conversion_signature"),
         st.session_state.get("geolocation_signature"),
-        int(st.session_state.get("n_clusters", 4)),
+        int(st.session_state.get("n_clusters", DEFAULT_K)),
     )
 
 
@@ -280,11 +281,11 @@ def render() -> None:
     # Configuration + process
     # ------------------------------------------------------------------
     st.subheader("2 · Parameter & Konfigurasi Klasterisasi")
-    st.session_state.setdefault("n_clusters", 4)
-    if int(st.session_state["n_clusters"]) > 8:
-        st.session_state["n_clusters"] = 8
-    elif int(st.session_state["n_clusters"]) < 2:
-        st.session_state["n_clusters"] = 2
+    st.session_state.setdefault("n_clusters", DEFAULT_K)
+    st.session_state["n_clusters"] = min(
+        max(int(st.session_state["n_clusters"]), K_MIN),
+        K_MAX,
+    )
 
     auto_optimal_k = st.checkbox(
         "Konfigurasi jumlah klaster paling optimal",
@@ -295,19 +296,17 @@ def render() -> None:
         ),
     )
     if auto_optimal_k:
-        st.session_state["n_clusters"] = 5
+        st.session_state["n_clusters"] = OPTIMAL_K
 
     st.slider(
         "Jumlah klaster (K)",
-        min_value=2,
-        max_value=8,
+        min_value=K_MIN,
+        max_value=K_MAX,
         step=1,
         key="n_clusters",
         disabled=auto_optimal_k,
         help=(
-            "Jumlah klaster ditetapkan otomatis ke K = 5."
-            if auto_optimal_k
-            else "Nilai awal K = 4 sesuai acuan eksperimen. Rentang pengujian klaster 2–8."
+            "Tentukan jumlah klaster (K) yang ingin dibentuk untuk pemodelan K-Prototypes"
         ),
     )
     st.caption(

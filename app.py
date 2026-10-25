@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from src.config import DEFAULT_K
+
 st.set_page_config(
     page_title="Klasterisasi Pelabuhan Impor Tiongkok",
     page_icon="📊",
@@ -38,7 +40,7 @@ _DEFAULTS = {
     "conversion_df": None,
     "conversion_valid": False,
     "conversion_message": None,
-    "n_clusters": 4,
+    "n_clusters": DEFAULT_K,
     "analysis_result": None,
     "analysis_signature": None,
     "processing_error": None,
