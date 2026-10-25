@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -81,6 +82,34 @@ SITC_LABELS = {
     "7": "Mesin dan peralatan transportasi",
     "8": "Barang manufaktur jadi",
     "9": "Komoditas dan transaksi tidak diklasifikasikan di tempat lain",
+}
+
+FEATURE_SPECS = [
+    {
+        "feature": "usd_value",
+        "label": "Nilai Impor (USD)",
+        "number_format": ",.2f",
+    },
+    {
+        "feature": "pdrb",
+        "label": "PDRB",
+        "number_format": ",.2f",
+    },
+    {
+        "feature": "china_investment_us_ribu",
+        "label": "Investasi Tiongkok",
+        "number_format": ",.2f",
+    },
+    {
+        "feature": "micro_small_industries",
+        "label": "Jumlah Industri Mikro dan Kecil",
+        "number_format": ",.0f",
+    },
+]
+
+FEATURE_LABELS = {spec["feature"]: spec["label"] for spec in FEATURE_SPECS}
+FEATURE_FORMATS = {
+    spec["feature"]: spec["number_format"] for spec in FEATURE_SPECS
 }
 
 
@@ -303,6 +332,206 @@ def _render_summary(result: dict) -> None:
 # View: Profil Klaster
 # ---------------------------------------------------------------------------
 
+def _render_cluster_overview(struct: pd.DataFrame) -> None:
+    st.markdown("**Distribusi Observasi per Klaster**")
+    overview = struct[
+        ["Cluster", "jumlah_kombinasi_Port_SITC", "persentase_dataset"]
+    ].rename(
+        columns={
+            "Cluster": "Klaster",
+            "jumlah_kombinasi_Port_SITC": "Jumlah Observasi",
+            "persentase_dataset": "Proporsi (%)",
+        }
+    )
+    st.dataframe(overview, width="stretch", hide_index=True)
+    st.caption(
+        "Tabel ini merangkum jumlah observasi (kombinasi pelabuhan–SITC) dan proporsinya "
+        "terhadap total dataset untuk setiap klaster yang terbentuk."
+    )
+
+
+def _render_numeric_stats_table(stats: pd.DataFrame) -> None:
+    st.markdown("**Statistik Deskriptif Fitur Numerik per Klaster**")
+    if stats.empty:
+        st.warning("Statistik fitur numerik tidak tersedia untuk dataset ini.")
+    else:
+        st.dataframe(
+            stats[["Klaster", "Fitur", "Mean", "Median", "Q1", "Q3", "IQR"]].round(3),
+            width="stretch",
+            hide_index=True,
+        )
+    st.caption(
+        "Statistik deskriptif (rata-rata, median, kuartil bawah Q1, kuartil atas Q3, dan rentang "
+        "antarkuartil IQR) dihitung untuk setiap fitur numerik pada masing-masing klaster, "
+        "menggunakan nilai dalam satuan asli tanpa standardisasi."
+    )
+
+
+def _render_categorical_modes(
+    clustered: pd.DataFrame, categorical_cols: list[str]
+) -> None:
+    st.markdown("**Nilai Modus Fitur Kategorikal per Klaster**")
+    mode_rows = []
+    for cluster_id, group in clustered.groupby("Cluster", sort=True):
+        row = {"Klaster": cluster_id}
+        for col in categorical_cols:
+            row[f"Modus {col.upper()}"] = _get_mode_text(group[col])
+        mode_rows.append(row)
+    st.dataframe(pd.DataFrame(mode_rows), width="stretch", hide_index=True)
+    st.caption(
+        "Tabel ini menampilkan nilai yang paling sering muncul (modus) pada setiap fitur kategorikal "
+        "untuk masing-masing klaster. Apabila terdapat lebih dari satu nilai dengan frekuensi tertinggi, "
+        "seluruh nilai tersebut ditampilkan."
+    )
+
+
+def _render_sitc_distribution(clustered: pd.DataFrame) -> None:
+    st.markdown("**Distribusi Proporsi Kategori SITC per Klaster**")
+    sitc_pct = pd.crosstab(
+        clustered["Cluster"], clustered["sitc"], normalize="index"
+    ).mul(100)
+    sitc_pct = sitc_pct.reindex(sorted(sitc_pct.columns), axis=1).round(2)
+    sitc_display = sitc_pct.reset_index().rename(columns={"Cluster": "Klaster"})
+    st.dataframe(sitc_display, width="stretch", hide_index=True)
+    st.caption(
+        "Tabel lintas-tabulasi (crosstab) ini menunjukkan proporsi (%) setiap kategori SITC "
+        "terhadap total observasi dalam klaster yang bersangkutan."
+    )
+    st.plotly_chart(sitc_stacked_bar(sitc_pct), width="stretch")
+    st.caption(
+        "Diagram batang bertumpuk ini memvisualisasikan komposisi kategori SITC di setiap klaster "
+        "dalam bentuk proporsi relatif, sehingga perbedaan pola komoditas antara klaster dapat "
+        "dibandingkan secara langsung."
+    )
+
+
+def _render_mean_feature_section(
+    clustered: pd.DataFrame, numerical_cols: list[str]
+) -> None:
+    st.markdown("**Perbandingan Rata-Rata Fitur Numerik per Klaster**")
+    st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
+    st.caption(
+        "Diagram batang ini menampilkan nilai rata-rata setiap fitur numerik untuk masing-masing klaster "
+        "dalam satuan aslinya. Perbandingan ini memungkinkan identifikasi perbedaan besaran absolut "
+        "antarklaster pada setiap fitur."
+    )
+
+
+def _with_excluded_note(figure: Any, caption: str) -> str:
+    meta = dict(figure.layout.meta or {})
+    if meta.get("excluded_nonpositive"):
+        caption += (
+            f" Sebanyak {meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
+            "ditampilkan pada skala log."
+        )
+    return caption
+
+
+def _render_distribution_section(
+    clustered: pd.DataFrame,
+    stats: pd.DataFrame,
+    numerical_cols: list[str],
+    *,
+    heading: str,
+    checkbox_key: str,
+    chart_title: str,
+    caption: str,
+    figure_builder: Callable[..., Any],
+) -> None:
+    st.markdown(heading)
+    log_usd = st.checkbox(
+        "Gunakan skala logaritmik untuk Nilai Impor (USD)",
+        key=checkbox_key,
+        value=False,
+    )
+    figure = figure_builder(
+        clustered,
+        stats,
+        numerical_cols,
+        FEATURE_LABELS,
+        title=chart_title,
+        log_usd=log_usd,
+        number_formats=FEATURE_FORMATS,
+    )
+    st.plotly_chart(figure, width="stretch")
+    st.caption(_with_excluded_note(figure, caption))
+
+
+def _render_zscore_section(
+    clustered: pd.DataFrame, numerical_cols: list[str]
+) -> None:
+    st.markdown("**Heatmap Profil Klaster Berdasarkan Z-Score**")
+    cluster_means = clustered.groupby("Cluster", sort=True)[numerical_cols].mean()
+    global_means = clustered[numerical_cols].mean()
+    global_stds = clustered[numerical_cols].std(ddof=0).replace(0, np.nan)
+    z_profile = (
+        cluster_means.subtract(global_means, axis="columns")
+        .divide(global_stds, axis="columns")
+        .fillna(0)
+    )
+    st.plotly_chart(cluster_z_heatmap(z_profile), width="stretch")
+    st.caption(
+        "Heatmap ini menampilkan Z-score rata-rata setiap fitur numerik per klaster relatif terhadap "
+        "rata-rata dan standar deviasi global dataset. Nilai positif mengindikasikan fitur berada "
+        "di atas rata-rata global, sedangkan nilai negatif mengindikasikan di bawah rata-rata. "
+        "Pola ini digunakan untuk mengidentifikasi karakteristik pembeda setiap klaster."
+    )
+
+
+def _render_profile_statistics(
+    clustered: pd.DataFrame,
+    struct: pd.DataFrame,
+    stats: pd.DataFrame,
+    numerical_cols: list[str],
+    categorical_cols: list[str],
+) -> None:
+    st.subheader("Profil Statistik Klaster")
+    st.caption(
+        "Bagian ini merangkum karakteristik setiap klaster melalui jumlah observasi, "
+        "statistik deskriptif fitur numerik, modus fitur kategorikal, distribusi SITC, "
+        "perbandingan rata-rata fitur, sebaran kuartil, kepadatan nilai, dan heatmap Z-score. "
+        "Seluruh statistik dihitung dari baris pelabuhan × SITC, bukan dengan bobot sama "
+        "antarprovinsi."
+    )
+
+    _render_cluster_overview(struct)
+    _render_numeric_stats_table(stats)
+    _render_categorical_modes(clustered, categorical_cols)
+    _render_sitc_distribution(clustered)
+    _render_mean_feature_section(clustered, numerical_cols)
+    _render_distribution_section(
+        clustered,
+        stats,
+        numerical_cols,
+        heading="**Ringkasan Statistik Kuartil Atribut Numerik per Klaster**",
+        checkbox_key="profile_box_log_usd",
+        chart_title="Ringkasan Statistik Kuartil Atribut Numerik per Klaster",
+        caption=(
+            "Boxplot menampilkan median, kuartil pertama (Q1), kuartil ketiga (Q3), IQR, dan pencilan "
+            "untuk setiap fitur numerik per klaster. Whisker menggunakan aturan 1,5 × IQR; pencilan "
+            "di luar whisker tetap ditampilkan."
+        ),
+        figure_builder=cluster_boxplots,
+    )
+    _render_distribution_section(
+        clustered,
+        stats,
+        numerical_cols,
+        heading="**Pola Kepadatan Nilai Atribut Numerik Antar-Klaster**",
+        checkbox_key="profile_violin_log_usd",
+        chart_title="Kepadatan Nilai Atribut Numerik per Klaster (satuan asli)",
+        caption=(
+            "Violin plot menunjukkan kepadatan distribusi nilai setiap atribut numerik per klaster. "
+            "Lebar violin mencerminkan kepadatan observasi, sedangkan garis mean menunjukkan rata-rata "
+            "klaster. Standar deviasi (SD) mengukur rata-rata jarak nilai observasi dari mean: semakin "
+            "besar SD, semakin lebar dan bervariasi sebaran nilai dalam klaster. Nilai mean dan SD "
+            "ditampilkan pada tooltip. Pencilan tetap ditampilkan."
+        ),
+        figure_builder=cluster_violinplots,
+    )
+    _render_zscore_section(clustered, numerical_cols)
+
+
 def _render_profile(result: dict) -> None:
     clustered = result["modeling"]["clustered"]
     numerical_cols = result["modeling"]["numerical_cols"]
@@ -320,182 +549,8 @@ def _render_profile(result: dict) -> None:
     )
 
     with tab_stats:
-        st.subheader("Profil Statistik Klaster")
-        st.caption(
-            "Bagian ini merangkum karakteristik setiap klaster melalui jumlah observasi, "
-            "statistik deskriptif fitur numerik, modus fitur kategorikal, distribusi SITC, "
-            "perbandingan rata-rata fitur, sebaran kuartil, kepadatan nilai, dan heatmap Z-score. "
-            "Seluruh statistik dihitung dari baris pelabuhan × SITC, bukan dengan bobot sama "
-            "antarprovinsi."
-        )
-        st.markdown("**Distribusi Observasi per Klaster**")
-        overview = struct[["Cluster", "jumlah_kombinasi_Port_SITC", "persentase_dataset"]].rename(
-            columns={
-                "Cluster": "Klaster",
-                "jumlah_kombinasi_Port_SITC": "Jumlah Observasi",
-                "persentase_dataset": "Proporsi (%)",
-            }
-        )
-        st.dataframe(overview, width="stretch", hide_index=True)
-        st.caption(
-            "Tabel ini merangkum jumlah observasi (kombinasi pelabuhan–SITC) dan proporsinya "
-            "terhadap total dataset untuk setiap klaster yang terbentuk."
-        )
-
-        st.markdown("**Statistik Deskriptif Fitur Numerik per Klaster**")
-        if stats.empty:
-            st.warning("Statistik fitur numerik tidak tersedia untuk dataset ini.")
-        else:
-            st.dataframe(
-                stats[["Klaster", "Fitur", "Mean", "Median", "Q1", "Q3", "IQR"]].round(3),
-                width="stretch",
-                hide_index=True,
-            )
-        st.caption(
-            "Statistik deskriptif (rata-rata, median, kuartil bawah Q1, kuartil atas Q3, dan rentang "
-            "antarkuartil IQR) dihitung untuk setiap fitur numerik pada masing-masing klaster, "
-            "menggunakan nilai dalam satuan asli tanpa standardisasi."
-        )
-
-        st.markdown("**Nilai Modus Fitur Kategorikal per Klaster**")
-        mode_rows = []
-        for cluster_id, group in clustered.groupby("Cluster", sort=True):
-            row = {"Klaster": cluster_id}
-            for col in categorical_cols:
-                row[f"Modus {col.upper()}"] = _get_mode_text(group[col])
-            mode_rows.append(row)
-        st.dataframe(pd.DataFrame(mode_rows), width="stretch", hide_index=True)
-        st.caption(
-            "Tabel ini menampilkan nilai yang paling sering muncul (modus) pada setiap fitur kategorikal "
-            "untuk masing-masing klaster. Apabila terdapat lebih dari satu nilai dengan frekuensi tertinggi, "
-            "seluruh nilai tersebut ditampilkan."
-        )
-
-        st.markdown("**Distribusi Proporsi Kategori SITC per Klaster**")
-        sitc_pct = pd.crosstab(clustered["Cluster"], clustered["sitc"], normalize="index").mul(100)
-        sitc_pct = sitc_pct.reindex(sorted(sitc_pct.columns), axis=1).round(2)
-        sitc_display = sitc_pct.reset_index().rename(columns={"Cluster": "Klaster"})
-        st.dataframe(sitc_display, width="stretch", hide_index=True)
-        st.caption(
-            "Tabel lintas-tabulasi (crosstab) ini menunjukkan proporsi (%) setiap kategori SITC "
-            "terhadap total observasi dalam klaster yang bersangkutan."
-        )
-        st.plotly_chart(sitc_stacked_bar(sitc_pct), width="stretch")
-        st.caption(
-            "Diagram batang bertumpuk ini memvisualisasikan komposisi kategori SITC di setiap klaster "
-            "dalam bentuk proporsi relatif, sehingga perbedaan pola komoditas antara klaster dapat "
-            "dibandingkan secara langsung."
-        )
-
-        feature_specs = [
-            {
-                "feature": "usd_value",
-                "label": "Nilai Impor (USD)",
-                "number_format": ",.2f",
-            },
-            {
-                "feature": "pdrb",
-                "label": "PDRB",
-                "number_format": ",.2f",
-            },
-            {
-                "feature": "china_investment_us_ribu",
-                "label": "Investasi Tiongkok",
-                "number_format": ",.2f",
-            },
-            {
-                "feature": "micro_small_industries",
-                "label": "Jumlah Industri Mikro dan Kecil",
-                "number_format": ",.0f",
-            },
-        ]
-
-        st.markdown("**Perbandingan Rata-Rata Fitur Numerik per Klaster**")
-        st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
-        st.caption(
-            "Diagram batang ini menampilkan nilai rata-rata setiap fitur numerik untuk masing-masing klaster "
-            "dalam satuan aslinya. Perbandingan ini memungkinkan identifikasi perbedaan besaran absolut "
-            "antarklaster pada setiap fitur."
-        )
-
-        st.markdown("**Ringkasan Statistik Kuartil Atribut Numerik per Klaster**")
-        log_usd_box = st.checkbox(
-            "Gunakan skala logaritmik untuk Nilai Impor (USD)",
-            key="profile_box_log_usd",
-            value=False,
-        )
-
-        feature_labels = {spec["feature"]: spec["label"] for spec in feature_specs}
-        number_formats = {spec["feature"]: spec["number_format"] for spec in feature_specs}
-        box_figure = cluster_boxplots(
-            clustered,
-            stats,
-            numerical_cols,
-            feature_labels,
-            title="Ringkasan Statistik Kuartil Atribut Numerik per Klaster",
-            log_usd=log_usd_box,
-            number_formats=number_formats,
-        )
-        st.plotly_chart(box_figure, width="stretch")
-        box_caption = (
-            "Boxplot menampilkan median, kuartil pertama (Q1), kuartil ketiga (Q3), IQR, dan pencilan "
-            "untuk setiap fitur numerik per klaster. Whisker menggunakan aturan 1,5 × IQR; pencilan "
-            "di luar whisker tetap ditampilkan."
-        )
-        box_meta = dict(box_figure.layout.meta or {})
-        if box_meta.get("excluded_nonpositive"):
-            box_caption += (
-                f" Sebanyak {box_meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
-                "ditampilkan pada skala log."
-            )
-        st.caption(box_caption)
-
-        st.markdown("**Pola Kepadatan Nilai Atribut Numerik Antar-Klaster**")
-        log_usd_violin = st.checkbox(
-            "Gunakan skala logaritmik untuk Nilai Impor (USD)",
-            key="profile_violin_log_usd",
-            value=False,
-        )
-        violin_figure = cluster_violinplots(
-            clustered,
-            stats,
-            numerical_cols,
-            feature_labels,
-            title="Kepadatan Nilai Atribut Numerik per Klaster (satuan asli)",
-            log_usd=log_usd_violin,
-            number_formats=number_formats,
-        )
-        st.plotly_chart(violin_figure, width="stretch")
-        violin_caption = (
-            "Violin plot menunjukkan kepadatan distribusi nilai setiap atribut numerik per klaster. "
-            "Lebar violin mencerminkan kepadatan observasi, sedangkan garis mean menunjukkan rata-rata "
-            "klaster. Standar deviasi (SD) mengukur rata-rata jarak nilai observasi dari mean: semakin "
-            "besar SD, semakin lebar dan bervariasi sebaran nilai dalam klaster. Nilai mean dan SD "
-            "ditampilkan pada tooltip. Pencilan tetap ditampilkan."
-        )
-        violin_meta = dict(violin_figure.layout.meta or {})
-        if violin_meta.get("excluded_nonpositive"):
-            violin_caption += (
-                f" Sebanyak {violin_meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
-                "ditampilkan pada skala log."
-            )
-        st.caption(violin_caption)
-
-        st.markdown("**Heatmap Profil Klaster Berdasarkan Z-Score**")
-        cluster_means = clustered.groupby("Cluster", sort=True)[numerical_cols].mean()
-        global_means = clustered[numerical_cols].mean()
-        global_stds = clustered[numerical_cols].std(ddof=0).replace(0, np.nan)
-        z_profile = (
-            cluster_means.subtract(global_means, axis="columns")
-            .divide(global_stds, axis="columns")
-            .fillna(0)
-        )
-        st.plotly_chart(cluster_z_heatmap(z_profile), width="stretch")
-        st.caption(
-            "Heatmap ini menampilkan Z-score rata-rata setiap fitur numerik per klaster relatif terhadap "
-            "rata-rata dan standar deviasi global dataset. Nilai positif mengindikasikan fitur berada "
-            "di atas rata-rata global, sedangkan nilai negatif mengindikasikan di bawah rata-rata. "
-            "Pola ini digunakan untuk mengidentifikasi karakteristik pembeda setiap klaster."
+        _render_profile_statistics(
+            clustered, struct, stats, numerical_cols, categorical_cols
         )
 
     with tab_scatter:
@@ -666,12 +721,345 @@ def _render_shap_section(result: dict) -> None:
 # View: Evaluasi
 # ---------------------------------------------------------------------------
 
-def _render_evaluation(result: dict) -> None:
-    modeling = result["modeling"]
-    elbow = modeling["elbow"]
+def _render_elbow_section(elbow: pd.DataFrame, k: int) -> None:
+    st.subheader("Penentuan Jumlah Klaster Optimal dengan Metode Elbow")
+    st.plotly_chart(elbow_line(elbow, k), width="stretch")
+    k_note = (
+        f"K optimal hasil evaluasi adalah K = {OPTIMAL_K}, sedangkan K yang "
+        f"digunakan pada model ini adalah K = {k}."
+    )
+    if int(k) == OPTIMAL_K:
+        k_note += " Nilai ini sama dengan K optimal."
+    st.caption(
+        "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Nilai K optimal "
+        "dipilih pada titik 'siku' (elbow), yaitu saat penurunan cost mulai tidak "
+        f"signifikan. {k_note} Jika ingin memakai K optimal, centang opsi "
+        "“Konfigurasi jumlah klaster paling optimal” di halaman Input Data."
+    )
+    st.dataframe(
+        elbow.rename(columns={"K": "Jumlah Klaster (K)", "Cost": "Total Cost"}).round(4),
+        width="stretch",
+        hide_index=True,
+    )
+    st.caption(
+        "Tabel ini mencatat nilai total cost K-Prototypes untuk setiap nilai K yang diuji."
+    )
+
+
+def _render_silhouette_plot(
+    silhouette_df: pd.DataFrame,
+    modeling: dict,
+    silhouette: float,
+    sampled: bool,
+) -> None:
+    st.markdown("**Silhouette Plot per Klaster**")
+    st.plotly_chart(
+        silhouette_plot(
+            silhouette_df,
+            sampled=sampled,
+            n_total=len(modeling["clustered"]),
+        ),
+        width="stretch",
+    )
+    st.caption(
+        "Setiap batang merepresentasikan nilai silhouette satu observasi, "
+        "dikelompokkan dan diurutkan per klaster. Garis vertikal menunjukkan "
+        "rata-rata nilai silhouette keseluruhan sebagai acuan kualitas pemisahan klaster."
+    )
+
+    mean_plot = float(silhouette_df["Silhouette"].mean())
+    negative_share = float((silhouette_df["Silhouette"] < 0).mean() * 100)
+    if abs(mean_plot - float(silhouette)) > 1e-6:
+        st.warning(
+            "Rata-rata silhouette dari plot "
+            f"({mean_plot:.6f}) berbeda dari skor evaluasi "
+            f"({float(silhouette):.6f}). Periksa konsistensi sampel evaluasi."
+        )
+
+    sample_note = (
+        f"Plot memakai sampel deterministik {len(silhouette_df):,} dari "
+        f"{len(modeling['clustered']):,} observasi (random_state=42); rata-rata "
+        "yang ditampilkan adalah rata-rata sampel tersebut."
+        if sampled
+        else f"Plot memakai seluruh {len(silhouette_df):,} observasi; rata-rata "
+        "sama dengan skor evaluasi di atas."
+    )
+    st.caption(
+        "Nilai silhouette mendekati 1 menunjukkan observasi relatif cocok dengan "
+        "klasternya dan terpisah dari klaster terdekat. Nilai mendekati 0 menunjukkan "
+        "observasi berada di sekitar batas antarklaster, sedangkan nilai negatif "
+        "menunjukkan observasi mungkin lebih dekat ke klaster lain. "
+        f"Rata-rata yang diplot = {mean_plot:.4f}; proporsi observasi bernilai "
+        f"negatif = {negative_share:.2f}%. {sample_note} Tidak ada ambang kualitas "
+        "tunggal: nilai rata-rata, sebaran per klaster, dan proporsi negatif perlu "
+        "dibaca bersama-sama."
+    )
+
+
+def _render_silhouette_table(silhouette_df: pd.DataFrame) -> None:
+    summary = (
+        silhouette_df.groupby("Cluster")["Silhouette"]
+        .agg(["size", "mean", "min", "max"])
+        .reset_index()
+    )
+    summary.columns = [
+        "Cluster",
+        "Jumlah",
+        "Rata-rata",
+        "Minimum",
+        "Maksimum",
+    ]
+    negative_by_cluster = (
+        silhouette_df.groupby("Cluster")["Silhouette"]
+        .apply(lambda values: float((values < 0).mean() * 100))
+        .reset_index(name="% Negatif")
+    )
+    summary = summary.merge(negative_by_cluster, on="Cluster")
+    summary["Klaster"] = summary["Cluster"].apply(
+        lambda value: f"Cluster {int(value)}"
+    )
+    st.dataframe(
+        summary[
+            [
+                "Klaster",
+                "Jumlah",
+                "Rata-rata",
+                "Minimum",
+                "Maksimum",
+                "% Negatif",
+            ]
+        ].round(
+            {
+                "Rata-rata": 3,
+                "Minimum": 3,
+                "Maksimum": 3,
+                "% Negatif": 2,
+            }
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+
+
+def _render_silhouette_downloads(
+    silhouette_df: pd.DataFrame,
+    modeling: dict,
+    sampled: bool,
+) -> None:
+    if "Row" not in silhouette_df.columns:
+        st.warning(
+            "Kolom indeks observasi tidak tersedia sehingga unduhan silhouette "
+            "tidak dapat disiapkan. Jalankan ulang analisis."
+        )
+        return
+
+    metadata = modeling["clustered"][["port", "sitc"]].reset_index(drop=True)
+    metadata["Row"] = metadata.index
+    silhouette_export = silhouette_df.merge(metadata, on="Row", how="left")
+
+    silhouette_all = (
+        silhouette_export[["port", "sitc", "Silhouette"]]
+        .rename(columns={"Silhouette": "silhouette"})
+        .sort_values(["port", "sitc"])
+        .reset_index(drop=True)
+    )
+    silhouette_negative = (
+        silhouette_export.loc[
+            silhouette_export["Silhouette"] < 0, ["port", "sitc"]
+        ]
+        .sort_values(["port", "sitc"])
+        .reset_index(drop=True)
+    )
+
+    download_col1, download_col2 = st.columns(2)
+    with download_col1:
+        st.download_button(
+            "Unduh Nilai Silhouette Seluruh Data (CSV)",
+            data=silhouette_all.to_csv(index=False).encode("utf-8-sig"),
+            file_name="silhouette_seluruh_data.csv",
+            mime="text/csv",
+            key="download_silhouette_all",
+            width="stretch",
+        )
+    with download_col2:
+        st.download_button(
+            "Unduh Daftar Silhouette Negatif (CSV)",
+            data=silhouette_negative.to_csv(index=False).encode("utf-8-sig"),
+            file_name="silhouette_negatif.csv",
+            mime="text/csv",
+            key="download_silhouette_negative",
+            width="stretch",
+            disabled=silhouette_negative.empty,
+        )
+    if sampled:
+        st.caption(
+            "Unduhan mengikuti observasi yang diplot pada Silhouette Plot. "
+            f"Karena data melebihi 2.500 observasi, berkas berisi sampel "
+            f"deterministik {len(silhouette_df):,} observasi "
+            "(random_state=42)."
+        )
+
+
+def _render_silhouette_section(modeling: dict, silhouette: float) -> None:
+    st.subheader("Evaluasi Kohesi dan Separasi Klaster (Skor Silhouette)")
+    st.caption(
+        "Skor Silhouette dihitung menggunakan metrik ketidaksamaan campuran K-Prototypes: "
+        "jumlah kuadrat selisih fitur numerik terstandardisasi ditambah penalti ketidakcocokan "
+        "fitur kategorikal yang dibobot oleh parameter gamma."
+    )
+    if pd.isna(silhouette):
+        st.warning("Skor Silhouette tidak dapat dihitung untuk konfigurasi data ini.")
+        return
+
+    st.info(
+        f"Rata-Rata Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
+        + (
+            "(penarikan sampel deterministik, random_state=42)."
+            if modeling["silhouette_n"] < len(modeling["clustered"])
+            else "(seluruh data)."
+        )
+    )
+
+    X_model = modeling.get("X_model")
+    labels = modeling.get("labels")
+    if X_model is None or labels is None:
+        st.warning(
+            "Nilai silhouette per observasi tidak tersedia pada hasil modeling ini, "
+            "sehingga Silhouette Plot tidak dapat ditampilkan."
+        )
+        return
+
+    silhouette_df = _silhouette_samples_cached(
+        X_model,
+        np.asarray(labels),
+        float(modeling["gamma"]),
+        tuple(modeling["numerical_cols"]),
+        tuple(modeling["categorical_cols"]),
+        int(SILHOUETTE_SAMPLE_SIZE),
+        42,
+    )
+    if silhouette_df.empty:
+        st.warning(
+            "Silhouette Plot tidak dapat dibuat karena nilai per observasi tidak "
+            "tersedia atau jumlah klaster tidak valid."
+        )
+        return
+
+    sampled = len(silhouette_df) < len(modeling["clustered"])
+    _render_silhouette_plot(silhouette_df, modeling, silhouette, sampled)
+    _render_silhouette_table(silhouette_df)
+    _render_silhouette_downloads(silhouette_df, modeling, sampled)
+    st.caption(
+        "Ringkasan statistik nilai silhouette per klaster, mencakup jumlah observasi, "
+        "rata-rata, nilai minimum, maksimum, dan proporsi observasi dengan nilai silhouette "
+        "negatif — yang mengindikasikan observasi berpotensi lebih dekat ke klaster lain."
+    )
+
+
+def _render_kprototypes_config(modeling: dict) -> None:
+    st.subheader("Konfigurasi Parameter Algoritma K-Prototypes")
+    config = modeling["config"]
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "Parameter": [
+                    "init",
+                    "n_init",
+                    "random_state",
+                    "n_jobs",
+                    "n_clusters",
+                    "gamma",
+                ],
+                "Nilai": [
+                    str(config["init"]),
+                    str(config["n_init"]),
+                    str(config["random_state"]),
+                    str(config["n_jobs"]),
+                    str(config["n_clusters"]),
+                    f"{modeling['gamma']:.4f}",
+                ],
+            }
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+    st.caption(
+        "Tabel ini mencatat nilai parameter yang digunakan pada eksekusi algoritma K-Prototypes, "
+        "termasuk nilai gamma yang menentukan bobot relatif fitur kategorikal terhadap fitur numerik "
+        "dalam metrik ketidaksamaan campuran."
+    )
+
+
+def _render_kprototypes_evaluation(modeling: dict) -> None:
     k = modeling["config"]["n_clusters"]
     silhouette = modeling["silhouette"]
-    surrogate = modeling["surrogate"]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Jumlah Klaster (K)", str(k))
+    c2.metric("Rata-Rata Skor Silhouette", _fmt(silhouette))
+    c3.metric("Ukuran Sampel Evaluasi", f"{modeling['silhouette_n']:,}")
+
+    _render_elbow_section(modeling["elbow"], k)
+    _render_silhouette_section(modeling, silhouette)
+    _render_kprototypes_config(modeling)
+
+
+def _render_surrogate_metrics(surrogate: dict) -> None:
+    st.subheader("Metrik Fidelity Model Surrogate (Random Forest)")
+    st.dataframe(surrogate["metrics"].round(4), width="stretch", hide_index=True)
+    st.caption(
+        "Metrik ini mengukur tingkat kesesuaian (fidelity) antara prediksi model surrogate Random Forest "
+        "dan label klaster K-Prototypes pada data uji. Nilai akurasi dan F1-score yang tinggi "
+        "mengindikasikan bahwa surrogate mereplikasi label klaster dengan baik, sehingga nilai SHAP "
+        "yang diturunkan dari surrogate dapat dianggap valid sebagai interpretasi pengelompokan."
+    )
+
+
+def _render_surrogate_report(surrogate: dict) -> None:
+    report = surrogate["classification_report"]
+    report_df = pd.DataFrame(report).transpose()
+    report_df = report_df[
+        report_df.index.map(
+            lambda value: value not in {"accuracy", "macro avg", "weighted avg"}
+        )
+    ]
+    report_df.index = [f"Cluster {i}" for i in report_df.index]
+    st.markdown("**Laporan Klasifikasi per Klaster (Classification Report)**")
+    st.dataframe(report_df.round(4), width="stretch")
+    st.caption(
+        "Tabel klasifikasi menampilkan precision, recall, dan F1-score model surrogate untuk "
+        "setiap klaster pada data uji. Metrik ini dihitung berdasarkan perbandingan prediksi "
+        "surrogate dengan label klaster K-Prototypes."
+    )
+
+
+def _render_surrogate_confusion(surrogate: dict) -> None:
+    st.markdown("**Matriks Konfusi (Confusion Matrix)**")
+    st.plotly_chart(
+        confusion_heatmap(surrogate["confusion_matrix"], surrogate["class_labels"]),
+        width="stretch",
+    )
+    st.caption(
+        "Matriks konfusi mengukur seberapa baik surrogate meniru label klaster K-Prototypes pada data uji "
+        "— bukan akurasi terhadap data asli. Semakin dominan elemen diagonal, semakin tinggi fidelity "
+        "surrogate, dan semakin dapat dipercaya nilai SHAP sebagai cerminan logika pengelompokan K-Prototypes."
+    )
+
+
+def _render_surrogate_evaluation(surrogate: dict) -> None:
+    st.info(
+        "Model surrogate dilatih untuk mereplikasi label klaster K-Prototypes. Metrik di "
+        "bawah mengukur fidelity surrogate terhadap label tersebut, bukan kualitas "
+        "pengelompokan. Fidelity yang tinggi mendukung validitas interpretasi SHAP yang "
+        "diturunkan dari model surrogate."
+    )
+    _render_surrogate_metrics(surrogate)
+    _render_surrogate_report(surrogate)
+    _render_surrogate_confusion(surrogate)
+
+
+def _render_evaluation(result: dict) -> None:
+    modeling = result["modeling"]
 
     st.info(
         "Halaman ini memisahkan evaluasi model utama klastering K-Prototypes dari evaluasi model "
@@ -684,297 +1072,11 @@ def _render_evaluation(result: dict) -> None:
     )
 
     with tab_main:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Jumlah Klaster (K)", str(k))
-        c2.metric("Rata-Rata Skor Silhouette", _fmt(silhouette))
-        c3.metric("Ukuran Sampel Evaluasi", f"{modeling['silhouette_n']:,}")
-
-        st.subheader("Penentuan Jumlah Klaster Optimal dengan Metode Elbow")
-        st.plotly_chart(elbow_line(elbow, k), width="stretch")
-        k_note = (
-            f"K optimal hasil evaluasi adalah K = {OPTIMAL_K}, sedangkan K yang "
-            f"digunakan pada model ini adalah K = {k}."
-        )
-        if int(k) == OPTIMAL_K:
-            k_note += " Nilai ini sama dengan K optimal."
-        st.caption(
-            "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Nilai K optimal "
-            "dipilih pada titik 'siku' (elbow), yaitu saat penurunan cost mulai tidak "
-            f"signifikan. {k_note} Jika ingin memakai K optimal, centang opsi "
-            "“Konfigurasi jumlah klaster paling optimal” di halaman Input Data."
-        )
-        st.dataframe(
-            elbow.rename(columns={"K": "Jumlah Klaster (K)", "Cost": "Total Cost"}).round(4),
-            width="stretch",
-            hide_index=True,
-        )
-        st.caption(
-            "Tabel ini mencatat nilai total cost K-Prototypes untuk setiap nilai K yang diuji."
-        )
-
-        st.subheader("Evaluasi Kohesi dan Separasi Klaster (Skor Silhouette)")
-        st.caption(
-            "Skor Silhouette dihitung menggunakan metrik ketidaksamaan campuran K-Prototypes: "
-            "jumlah kuadrat selisih fitur numerik terstandardisasi ditambah penalti ketidakcocokan "
-            "fitur kategorikal yang dibobot oleh parameter gamma."
-        )
-        if pd.isna(silhouette):
-            st.warning("Skor Silhouette tidak dapat dihitung untuk konfigurasi data ini.")
-        else:
-            st.info(
-                f"Rata-Rata Skor Silhouette = {silhouette:.4f}, dihitung berdasarkan {modeling['silhouette_n']:,} sampel observasi "
-                + ("(penarikan sampel deterministik, random_state=42)." if modeling["silhouette_n"] < len(modeling["clustered"]) else "(seluruh data).")
-            )
-
-            X_model = modeling.get("X_model")
-            labels = modeling.get("labels")
-            if X_model is None or labels is None:
-                st.warning(
-                    "Nilai silhouette per observasi tidak tersedia pada hasil modeling ini, "
-                    "sehingga Silhouette Plot tidak dapat ditampilkan."
-                )
-            else:
-                silhouette_df = _silhouette_samples_cached(
-                    X_model,
-                    np.asarray(labels),
-                    float(modeling["gamma"]),
-                    tuple(modeling["numerical_cols"]),
-                    tuple(modeling["categorical_cols"]),
-                    int(SILHOUETTE_SAMPLE_SIZE),
-                    42,
-                )
-                if silhouette_df.empty:
-                    st.warning(
-                        "Silhouette Plot tidak dapat dibuat karena nilai per observasi tidak "
-                        "tersedia atau jumlah klaster tidak valid."
-                    )
-                else:
-                    sampled = len(silhouette_df) < len(modeling["clustered"])
-                    st.markdown("**Silhouette Plot per Klaster**")
-                    st.plotly_chart(
-                        silhouette_plot(
-                            silhouette_df,
-                            sampled=sampled,
-                            n_total=len(modeling["clustered"]),
-                        ),
-                        width="stretch",
-                    )
-                    st.caption(
-                        "Setiap batang merepresentasikan nilai silhouette satu observasi, "
-                        "dikelompokkan dan diurutkan per klaster. Garis vertikal menunjukkan "
-                        "rata-rata nilai silhouette keseluruhan sebagai acuan kualitas pemisahan klaster."
-                    )
-
-                    mean_plot = float(silhouette_df["Silhouette"].mean())
-                    negative_share = float(
-                        (silhouette_df["Silhouette"] < 0).mean() * 100
-                    )
-                    if abs(mean_plot - float(silhouette)) > 1e-6:
-                        st.warning(
-                            "Rata-rata silhouette dari plot "
-                            f"({mean_plot:.6f}) berbeda dari skor evaluasi "
-                            f"({float(silhouette):.6f}). Periksa konsistensi sampel evaluasi."
-                        )
-
-                    sample_note = (
-                        f"Plot memakai sampel deterministik {len(silhouette_df):,} dari "
-                        f"{len(modeling['clustered']):,} observasi (random_state=42); rata-rata "
-                        "yang ditampilkan adalah rata-rata sampel tersebut."
-                        if sampled
-                        else f"Plot memakai seluruh {len(silhouette_df):,} observasi; rata-rata "
-                        "sama dengan skor evaluasi di atas."
-                    )
-                    st.caption(
-                        "Nilai silhouette mendekati 1 menunjukkan observasi relatif cocok dengan "
-                        "klasternya dan terpisah dari klaster terdekat. Nilai mendekati 0 menunjukkan "
-                        "observasi berada di sekitar batas antarklaster, sedangkan nilai negatif "
-                        "menunjukkan observasi mungkin lebih dekat ke klaster lain. "
-                        f"Rata-rata yang diplot = {mean_plot:.4f}; proporsi observasi bernilai "
-                        f"negatif = {negative_share:.2f}%. {sample_note} Tidak ada ambang kualitas "
-                        "tunggal: nilai rata-rata, sebaran per klaster, dan proporsi negatif perlu "
-                        "dibaca bersama-sama."
-                    )
-
-                    summary = (
-                        silhouette_df.groupby("Cluster")["Silhouette"]
-                        .agg(["size", "mean", "min", "max"])
-                        .reset_index()
-                    )
-                    summary.columns = [
-                        "Cluster",
-                        "Jumlah",
-                        "Rata-rata",
-                        "Minimum",
-                        "Maksimum",
-                    ]
-                    negative_by_cluster = (
-                        silhouette_df.groupby("Cluster")["Silhouette"]
-                        .apply(lambda values: float((values < 0).mean() * 100))
-                        .reset_index(name="% Negatif")
-                    )
-                    summary = summary.merge(negative_by_cluster, on="Cluster")
-                    summary["Klaster"] = summary["Cluster"].apply(
-                        lambda value: f"Cluster {int(value)}"
-                    )
-                    st.dataframe(
-                        summary[
-                            [
-                                "Klaster",
-                                "Jumlah",
-                                "Rata-rata",
-                                "Minimum",
-                                "Maksimum",
-                                "% Negatif",
-                            ]
-                        ].round(
-                            {
-                                "Rata-rata": 3,
-                                "Minimum": 3,
-                                "Maksimum": 3,
-                                "% Negatif": 2,
-                            }
-                        ),
-                        width="stretch",
-                        hide_index=True,
-                    )
-
-                    if "Row" not in silhouette_df.columns:
-                        st.warning(
-                            "Kolom indeks observasi tidak tersedia sehingga unduhan silhouette "
-                            "tidak dapat disiapkan. Jalankan ulang analisis."
-                        )
-                    else:
-                        metadata = (
-                            modeling["clustered"][["port", "sitc"]]
-                            .reset_index(drop=True)
-                        )
-                        metadata["Row"] = metadata.index
-                        silhouette_export = silhouette_df.merge(
-                            metadata, on="Row", how="left"
-                        )
-
-                        silhouette_all = (
-                            silhouette_export[["port", "sitc", "Silhouette"]]
-                            .rename(columns={"Silhouette": "silhouette"})
-                            .sort_values(["port", "sitc"])
-                            .reset_index(drop=True)
-                        )
-                        silhouette_negative = (
-                            silhouette_export.loc[
-                                silhouette_export["Silhouette"] < 0, ["port", "sitc"]
-                            ]
-                            .sort_values(["port", "sitc"])
-                            .reset_index(drop=True)
-                        )
-
-                        download_col1, download_col2 = st.columns(2)
-                        with download_col1:
-                            st.download_button(
-                                "Unduh Nilai Silhouette Seluruh Data (CSV)",
-                                data=silhouette_all.to_csv(index=False).encode(
-                                    "utf-8-sig"
-                                ),
-                                file_name="silhouette_seluruh_data.csv",
-                                mime="text/csv",
-                                key="download_silhouette_all",
-                                width="stretch",
-                            )
-                        with download_col2:
-                            st.download_button(
-                                "Unduh Daftar Silhouette Negatif (CSV)",
-                                data=silhouette_negative.to_csv(index=False).encode(
-                                    "utf-8-sig"
-                                ),
-                                file_name="silhouette_negatif.csv",
-                                mime="text/csv",
-                                key="download_silhouette_negative",
-                                width="stretch",
-                                disabled=silhouette_negative.empty,
-                            )
-                        if sampled:
-                            st.caption(
-                                "Unduhan mengikuti observasi yang diplot pada Silhouette Plot. "
-                                f"Karena data melebihi 2.500 observasi, berkas berisi sampel "
-                                f"deterministik {len(silhouette_df):,} observasi "
-                                "(random_state=42)."
-                            )
-
-                    st.caption(
-                        "Ringkasan statistik nilai silhouette per klaster, mencakup jumlah observasi, "
-                        "rata-rata, nilai minimum, maksimum, dan proporsi observasi dengan nilai silhouette "
-                        "negatif — yang mengindikasikan observasi berpotensi lebih dekat ke klaster lain."
-                    )
-
-        st.subheader("Konfigurasi Parameter Algoritma K-Prototypes")
-        config = modeling["config"]
-        st.dataframe(
-            pd.DataFrame(
-                {
-                    "Parameter": ["init", "n_init", "random_state", "n_jobs", "n_clusters", "gamma"],
-                    "Nilai": [
-                        str(config["init"]),
-                        str(config["n_init"]),
-                        str(config["random_state"]),
-                        str(config["n_jobs"]),
-                        str(config["n_clusters"]),
-                        f"{modeling['gamma']:.4f}",
-                    ],
-                }
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-        st.caption(
-            "Tabel ini mencatat nilai parameter yang digunakan pada eksekusi algoritma K-Prototypes, "
-            "termasuk nilai gamma yang menentukan bobot relatif fitur kategorikal terhadap fitur numerik "
-            "dalam metrik ketidaksamaan campuran."
-        )
+        _render_kprototypes_evaluation(modeling)
 
     with tab_surrogate:
-        st.info(
-            "Model surrogate dilatih untuk mereplikasi label klaster K-Prototypes. Metrik di "
-            "bawah mengukur fidelity surrogate terhadap label tersebut, bukan kualitas "
-            "pengelompokan. Fidelity yang tinggi mendukung validitas interpretasi SHAP yang "
-            "diturunkan dari model surrogate."
-        )
-        st.subheader("Metrik Fidelity Model Surrogate (Random Forest)")
-        st.dataframe(
-            surrogate["metrics"].round(4), width="stretch", hide_index=True
-        )
-        st.caption(
-            "Metrik ini mengukur tingkat kesesuaian (fidelity) antara prediksi model surrogate Random Forest "
-            "dan label klaster K-Prototypes pada data uji. Nilai akurasi dan F1-score yang tinggi "
-            "mengindikasikan bahwa surrogate mereplikasi label klaster dengan baik, sehingga nilai SHAP "
-            "yang diturunkan dari surrogate dapat dianggap valid sebagai interpretasi pengelompokan."
-        )
+        _render_surrogate_evaluation(modeling["surrogate"])
 
-        report = surrogate["classification_report"]
-        report_df = pd.DataFrame(report).transpose()
-        report_df = report_df[report_df.index.map(lambda x: x not in {"accuracy", "macro avg", "weighted avg"})]
-        report_df.index = [f"Cluster {i}" for i in report_df.index]
-        st.markdown("**Laporan Klasifikasi per Klaster (Classification Report)**")
-        st.dataframe(report_df.round(4), width="stretch")
-        st.caption(
-            "Tabel klasifikasi menampilkan precision, recall, dan F1-score model surrogate untuk "
-            "setiap klaster pada data uji. Metrik ini dihitung berdasarkan perbandingan prediksi "
-            "surrogate dengan label klaster K-Prototypes."
-        )
-
-        st.markdown("**Matriks Konfusi (Confusion Matrix)**")
-        st.plotly_chart(
-            confusion_heatmap(surrogate["confusion_matrix"], surrogate["class_labels"]),
-            width="stretch",
-        )
-        st.caption(
-            "Matriks konfusi mengukur seberapa baik surrogate meniru label klaster K-Prototypes pada data uji "
-            "— bukan akurasi terhadap data asli. Semakin dominan elemen diagonal, semakin tinggi fidelity "
-            "surrogate, dan semakin dapat dipercaya nilai SHAP sebagai cerminan logika pengelompokan K-Prototypes."
-        )
-
-
-# ---------------------------------------------------------------------------
-# View: Peta
-# ---------------------------------------------------------------------------
 
 def _find_coordinate_columns(df: pd.DataFrame) -> tuple[str | None, str | None]:
     lookup = {str(c).strip().lower(): c for c in df.columns}

@@ -133,10 +133,9 @@ def _render_summary(pre_report: dict, model_result: dict) -> None:
     sil_txt = "N/A" if pd.isna(sil) else f"{sil:.4f}"
     st.caption(
         f"📊 Rata-Rata Skor Silhouette: **{sil_txt}**\n\n"
-        f"📈 Fidelity model surrogate (Akurasi Random Forest):"
+        f"📈 Fidelity model surrogate SHAP (Random Forest):"
         f" **{model_result['surrogate']['metrics'].iloc[0]['Nilai']:.4f}**\n\n"
-        f"🔍 Analisis SHAP: **{'✅ Tersedia' if model_result['shap'].get('available') else '⚠️ Tidak tersedia'}**"
-    )
+    )  
 
     with st.expander("Detail Ringkasan Tahapan Prapemrosesan"):
         conversion = pre_report["conversion"]
