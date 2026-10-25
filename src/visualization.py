@@ -7,6 +7,8 @@ actual analysis output.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -244,20 +246,148 @@ def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Fig
     return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster (satuan asli)")
 
 
-def cluster_boxplots(
-    data: pd.DataFrame,
-    stats: pd.DataFrame,
+def _minimal_feature_stats(values: np.ndarray) -> dict[str, object]:
+    """Compute fallback statistics when the shared stats table has no row."""
+    series = pd.Series(values)
+    count = int(len(series))
+    q1 = float(series.quantile(0.25))
+    median = float(series.median())
+    q3 = float(series.quantile(0.75))
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    return {
+        "count": count,
+        "mean": float(series.mean()),
+        "std": float(series.std(ddof=1)) if count > 1 else float("nan"),
+        "q1": q1,
+        "median": median,
+        "q3": q3,
+        "iqr": iqr,
+        "outliers": int(((series < lower) | (series > upper)).sum()),
+    }
+
+
+def _stats_from_row(stats_row: pd.Series) -> dict[str, object]:
+    return {
+        "count": int(stats_row["Jumlah"]),
+        "mean": stats_row["Mean"],
+        "std": stats_row["Std"],
+        "q1": stats_row["Q1"],
+        "median": stats_row["Median"],
+        "q3": stats_row["Q3"],
+        "iqr": stats_row["IQR"],
+        "outliers": int(stats_row["Jumlah Pencilan"]),
+    }
+
+
+def _distribution_customdata(
+    stats_values: dict[str, object],
+    number_format: str,
+    count: int,
+) -> list[list[object]]:
+    row = [
+        stats_values["count"],
+        _format_number(stats_values["mean"], number_format),
+        _format_number(stats_values["std"], number_format),
+        _format_number(stats_values["q1"], number_format),
+        _format_number(stats_values["median"], number_format),
+        _format_number(stats_values["q3"], number_format),
+        _format_number(stats_values["iqr"], number_format),
+        stats_values["outliers"],
+    ]
+    return [row.copy() for _ in range(count)]
+
+
+def _box_trace(
+    label: str,
+    values: np.ndarray,
+    color: str,
+    customdata: list[list[object]],
+    number_format: str,
+) -> go.Box:
+    return go.Box(
+        x=[label] * len(values),
+        y=values,
+        name=label,
+        marker_color=color,
+        line_color=color,
+        boxpoints="outliers",
+        jitter=0.3,
+        pointpos=0,
+        whiskerwidth=0.5,
+        quartilemethod="linear",
+        showlegend=False,
+        customdata=customdata,
+        hovertemplate=(
+            f"<b>{label}</b><br>"
+            "Q1: %{customdata[3]}<br>"
+            "Median: %{customdata[4]}<br>"
+            "Q3: %{customdata[5]}<br>"
+            "IQR: %{customdata[6]}<br>"
+            "Rata-rata: %{customdata[1]}<br>"
+            "Standar deviasi: %{customdata[2]}<br>"
+            "Jumlah pencilan: %{customdata[7]}<br>"
+            "Jumlah observasi: %{customdata[0]}<br>"
+            f"Nilai: %{{y:{number_format}}}<extra></extra>"
+        ),
+    )
+
+
+def _violin_trace(
+    label: str,
+    values: np.ndarray,
+    color: str,
+    customdata: list[list[object]],
+    number_format: str,
+) -> go.Violin:
+    return go.Violin(
+        x=[label] * len(values),
+        y=values,
+        name=label,
+        line=dict(color=color, width=1.1),
+        fillcolor=_hex_to_rgba(color, 0.28),
+        box=dict(visible=False),
+        meanline=dict(
+            visible=True,
+            color=color,
+            width=1.2,
+        ),
+        points="outliers",
+        jitter=0.25,
+        pointpos=0,
+        spanmode="soft",
+        width=0.8,
+        quartilemethod="linear",
+        showlegend=False,
+        customdata=customdata,
+        hovertemplate=(
+            f"<b>{label}</b><br>"
+            f"Nilai: %{{y:{number_format}}}<br>"
+            "Mean: %{customdata[1]}<br>"
+            "Standar deviasi: %{customdata[2]}<br>"
+            "Jumlah observasi: %{customdata[0]}<extra></extra>"
+        ),
+    )
+
+
+def _distribution_figure(
+    data: pd.DataFrame | None,
+    stats: pd.DataFrame | None,
     numerical_cols: list[str],
     feature_labels: dict[str, str],
-    title: str | None = None,
-    log_usd: bool = False,
-    number_formats: dict[str, str] | None = None,
+    *,
+    trace_builder: Callable[..., go.Box | go.Violin],
+    title: str | None,
+    log_usd: bool,
+    number_formats: dict[str, str] | None,
+    kind: str,
 ) -> go.Figure:
-    """Combined 2x2 boxplot panel for all numeric features."""
+    """Build one shared panel for box or violin distribution traces."""
     if data is None or data.empty or "Cluster" not in data.columns:
         return _empty_figure("Data fitur numerik tidak tersedia.")
     if not numerical_cols:
-        return _empty_figure("Tidak ada fitur numerik untuk boxplot.")
+        return _empty_figure(f"Tidak ada fitur numerik untuk {kind}.")
 
     missing = [col for col in numerical_cols if col not in data.columns]
     if missing:
@@ -271,7 +401,7 @@ def cluster_boxplots(
         key=_cluster_sort_key,
     )
     colors = cluster_color_map(cluster_labels)
-    rows = 1 if len(numerical_cols) <= 2 else 2
+    rows = max(1, (len(numerical_cols) + 1) // 2)
     cols = 1 if len(numerical_cols) == 1 else 2
     fig = make_subplots(
         rows=rows,
@@ -308,68 +438,22 @@ def cluster_boxplots(
                 if stats is not None and not stats.empty
                 else pd.DataFrame()
             )
-            if row_df.empty:
-                series = pd.Series(values)
-                q1 = float(series.quantile(0.25))
-                median = float(series.median())
-                q3 = float(series.quantile(0.75))
-                iqr = q3 - q1
-                lower = q1 - 1.5 * iqr
-                upper = q3 + 1.5 * iqr
-                outliers = int(((series < lower) | (series > upper)).sum())
-                count = int(len(series))
-                mean = float(series.mean())
-                std = float(series.std(ddof=1)) if count > 1 else float("nan")
-            else:
-                stats_row = row_df.iloc[0]
-                count = int(stats_row["Jumlah"])
-                mean = stats_row["Mean"]
-                std = stats_row["Std"]
-                q1 = stats_row["Q1"]
-                median = stats_row["Median"]
-                q3 = stats_row["Q3"]
-                iqr = stats_row["IQR"]
-                outliers = int(stats_row["Jumlah Pencilan"])
-
-            customdata = [
-                [
-                    count,
-                    _format_number(mean, number_format),
-                    _format_number(std, number_format),
-                    _format_number(q1, number_format),
-                    _format_number(median, number_format),
-                    _format_number(q3, number_format),
-                    _format_number(iqr, number_format),
-                    outliers,
-                ]
-            ] * len(values)
+            stats_values = (
+                _minimal_feature_stats(values)
+                if row_df.empty
+                else _stats_from_row(row_df.iloc[0])
+            )
+            customdata = _distribution_customdata(
+                stats_values, number_format, len(values)
+            )
 
             fig.add_trace(
-                go.Box(
-                    x=[label] * len(values),
-                    y=values,
-                    name=label,
-                    marker_color=colors[label],
-                    line_color=colors[label],
-                    boxpoints="outliers",
-                    jitter=0.3,
-                    pointpos=0,
-                    whiskerwidth=0.5,
-                    quartilemethod="linear",
-                    showlegend=False,
+                trace_builder(
+                    label=label,
+                    values=values,
+                    color=colors[label],
                     customdata=customdata,
-                    hovertemplate=(
-                        f"<b>{label}</b><br>"
-                        "Q1: %{customdata[3]}<br>"
-                        "Median: %{customdata[4]}<br>"
-                        "Q3: %{customdata[5]}<br>"
-                        "IQR: %{customdata[6]}<br>"
-                        "Rata-rata: %{customdata[1]}<br>"
-                        "Standar deviasi: %{customdata[2]}<br>"
-                        "Jumlah pencilan: %{customdata[7]}<br>"
-                        "Jumlah observasi: %{customdata[0]}<br>"
-                        "Nilai: %{y:" + number_format + "}<extra></extra>"
-                    ),
+                    number_format=number_format,
                 ),
                 row=row,
                 col=col,
@@ -394,7 +478,7 @@ def cluster_boxplots(
         )
 
     if added_traces == 0:
-        return _empty_figure("Data fitur numerik tidak tersedia untuk boxplot.")
+        return _empty_figure(f"Data fitur numerik tidak tersedia untuk {kind}.")
 
     fig.update_annotations(font=dict(size=13))
     fig = _style(fig, height=760, title=title)
@@ -403,6 +487,29 @@ def cluster_boxplots(
         "excluded_nonpositive": total_excluded,
     }
     return fig
+
+
+def cluster_boxplots(
+    data: pd.DataFrame,
+    stats: pd.DataFrame,
+    numerical_cols: list[str],
+    feature_labels: dict[str, str],
+    title: str | None = None,
+    log_usd: bool = False,
+    number_formats: dict[str, str] | None = None,
+) -> go.Figure:
+    """Combined boxplot panel for all numeric features."""
+    return _distribution_figure(
+        data,
+        stats,
+        numerical_cols,
+        feature_labels,
+        trace_builder=_box_trace,
+        title=title,
+        log_usd=log_usd,
+        number_formats=number_formats,
+        kind="boxplot",
+    )
 
 
 def cluster_violinplots(
@@ -415,157 +522,17 @@ def cluster_violinplots(
     number_formats: dict[str, str] | None = None,
 ) -> go.Figure:
     """Combined violin panel showing distribution density and mean/SD per cluster."""
-    if data is None or data.empty or "Cluster" not in data.columns:
-        return _empty_figure("Data fitur numerik tidak tersedia.")
-    if not numerical_cols:
-        return _empty_figure("Tidak ada fitur numerik untuk violin plot.")
-
-    missing = [col for col in numerical_cols if col not in data.columns]
-    if missing:
-        return _empty_figure(
-            "Kolom fitur numerik tidak lengkap: " + ", ".join(missing)
-        )
-
-    number_formats = number_formats or {}
-    cluster_labels = sorted(
-        {_cluster_label(value) for value in data["Cluster"].dropna()},
-        key=_cluster_sort_key,
+    return _distribution_figure(
+        data,
+        stats,
+        numerical_cols,
+        feature_labels,
+        trace_builder=_violin_trace,
+        title=title,
+        log_usd=log_usd,
+        number_formats=number_formats,
+        kind="violin plot",
     )
-    colors = cluster_color_map(cluster_labels)
-    rows = 1 if len(numerical_cols) <= 2 else 2
-    cols = 1 if len(numerical_cols) == 1 else 2
-    fig = make_subplots(
-        rows=rows,
-        cols=cols,
-        subplot_titles=[feature_labels.get(col, col) for col in numerical_cols],
-        vertical_spacing=0.14,
-        horizontal_spacing=0.08,
-    )
-
-    total_excluded = 0
-    added_traces = 0
-
-    for index, feature in enumerate(numerical_cols):
-        row = index // 2 + 1
-        col = index % 2 + 1
-        number_format = number_formats.get(feature, ",.2f")
-        df = data[["Cluster", feature]].copy()
-        df[feature] = pd.to_numeric(df[feature], errors="coerce")
-        df = df.dropna(subset=[feature])
-        use_log = bool(log_usd and feature == "usd_value")
-        if use_log:
-            total_excluded += int((df[feature] <= 0).sum())
-            df = df[df[feature] > 0].copy()
-
-        df["Label"] = df["Cluster"].apply(_cluster_label)
-
-        for label in cluster_labels:
-            values = df.loc[df["Label"] == label, feature].to_numpy(dtype=float)
-            if len(values) == 0:
-                continue
-
-            row_df = (
-                stats[(stats["Klaster"] == label) & (stats["Fitur"] == feature)]
-                if stats is not None and not stats.empty
-                else pd.DataFrame()
-            )
-            if row_df.empty:
-                series = pd.Series(values)
-                q1 = float(series.quantile(0.25))
-                median = float(series.median())
-                q3 = float(series.quantile(0.75))
-                iqr = q3 - q1
-                lower = q1 - 1.5 * iqr
-                upper = q3 + 1.5 * iqr
-                outliers = int(((series < lower) | (series > upper)).sum())
-                count = int(len(series))
-                mean = float(series.mean())
-                std = float(series.std(ddof=1)) if count > 1 else float("nan")
-            else:
-                stats_row = row_df.iloc[0]
-                count = int(stats_row["Jumlah"])
-                mean = stats_row["Mean"]
-                std = stats_row["Std"]
-                q1 = stats_row["Q1"]
-                median = stats_row["Median"]
-                q3 = stats_row["Q3"]
-                iqr = stats_row["IQR"]
-                outliers = int(stats_row["Jumlah Pencilan"])
-
-            customdata = [
-                [
-                    count,
-                    _format_number(mean, number_format),
-                    _format_number(std, number_format),
-                    _format_number(q1, number_format),
-                    _format_number(median, number_format),
-                    _format_number(q3, number_format),
-                    _format_number(iqr, number_format),
-                    outliers,
-                ]
-            ] * len(values)
-
-            fig.add_trace(
-                go.Violin(
-                    x=[label] * len(values),
-                    y=values,
-                    name=label,
-                    line=dict(color=colors[label], width=1.1),
-                    fillcolor=_hex_to_rgba(colors[label], 0.28),
-                    box=dict(visible=False),
-                    meanline=dict(
-                        visible=True,
-                        color=colors[label],
-                        width=1.2,
-                    ),
-                    points="outliers",
-                    jitter=0.25,
-                    pointpos=0,
-                    spanmode="soft",
-                    width=0.8,
-                    quartilemethod="linear",
-                    showlegend=False,
-                    customdata=customdata,
-                    hovertemplate=(
-                        f"<b>{label}</b><br>"
-                        "Nilai: %{y:" + number_format + "}<br>"
-                        "Mean: %{customdata[1]}<br>"
-                        "Standar deviasi: %{customdata[2]}<br>"
-                        "Jumlah observasi: %{customdata[0]}<extra></extra>"
-                    ),
-                ),
-                row=row,
-                col=col,
-            )
-            added_traces += 1
-
-        fig.update_xaxes(
-            title_text="Klaster",
-            type="category",
-            categoryorder="array",
-            categoryarray=cluster_labels,
-            row=row,
-            col=col,
-        )
-        feature_label = feature_labels.get(feature, feature)
-        fig.update_yaxes(
-            title_text=f"{feature_label} (skala log)" if use_log else feature_label,
-            type="log" if use_log else "linear",
-            tickformat=",.0f" if use_log else number_format,
-            row=row,
-            col=col,
-        )
-
-    if added_traces == 0:
-        return _empty_figure("Data fitur numerik tidak tersedia untuk violin plot.")
-
-    fig.update_annotations(font=dict(size=13))
-    fig = _style(fig, height=760, title=title)
-    fig.layout.meta = {
-        "log_scale": bool(log_usd),
-        "excluded_nonpositive": total_excluded,
-    }
-    return fig
 
 
 def sitc_stacked_bar(sitc_distribution: pd.DataFrame) -> go.Figure:

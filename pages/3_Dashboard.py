@@ -312,7 +312,7 @@ def _render_profile(result: dict) -> None:
 
     st.info(
         "Profil klaster terdiri atas profil statistik, sebaran klaster, "
-        "dan analisis SHAP dari model surrogate Random Forest."
+        "dan analisis SHAP dari model surrogate."
     )
 
     tab_stats, tab_scatter, tab_shap = st.tabs(
@@ -629,7 +629,7 @@ def _render_shap_section(result: dict) -> None:
     features = result["modeling"]["X_model"].loc[
         shap_result["X_eval"].index, result["modeling"]["feature_cols"]
     ]
-    tabs = st.tabs([f"Kontribusi ke Cluster {c}" for c in classes])
+    tabs = st.tabs([f"Cluster {c}" for c in classes])
     for tab, cluster_id in zip(tabs, classes):
         with tab:
             grouped_values = shap_result["grouped_by_cluster"][int(cluster_id)]
