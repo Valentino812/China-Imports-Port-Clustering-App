@@ -1018,7 +1018,7 @@ def _render_map(result: dict) -> None:
         st.session_state["map_sitc_choice"] = sitc_options[0]
 
     selected_sitc = st.selectbox(
-        "Kategori SITC (pilih satu)",
+        "Pilih Satu Kategori SITC",
         sitc_options,
         key="map_sitc_choice",
         format_func=_sitc_label,
@@ -1042,7 +1042,7 @@ def _render_map(result: dict) -> None:
             lat_col,
             lon_col,
             "port",
-            f"Sebaran Klaster Pelabuhan — SITC {selected_sitc}",
+            f"Sebaran Klaster Pelabuhan SITC {selected_sitc}",
             color_col="Klaster",
         ),
         width="stretch",
@@ -1059,7 +1059,7 @@ def _render_map(result: dict) -> None:
     if not collisions.empty:
         caption += (
             f" Sebanyak {len(collisions):,} pelabuhan berbagi koordinat geografis dengan pelabuhan lain "
-            "sehingga marker-nya saling bertumpang tindih — daftar selengkapnya tersedia pada panel di bawah."
+            "sehingga marker-nya saling bertumpang tindih."
         )
     st.caption(caption)
 
