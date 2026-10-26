@@ -331,6 +331,12 @@ def _render_summary(result: dict) -> None:
 # ---------------------------------------------------------------------------
 # View: Profil Klaster
 # ---------------------------------------------------------------------------
+#
+# [LOG SCALE FEATURE - DISABLED]
+# Kontrol skala log pada tab Profil Klaster (scatter, boxplot, dan violinplot)
+# dinonaktifkan sementara. Kode asli dipertahankan sebagai komentar agar dapat
+# diaktifkan kembali tanpa menulis ulang implementasinya.
+# ---------------------------------------------------------------------------
 
 def _render_cluster_overview(struct: pd.DataFrame) -> None:
     st.markdown("**Distribusi Observasi per Klaster**")
@@ -409,7 +415,10 @@ def _render_mean_feature_section(
     clustered: pd.DataFrame, numerical_cols: list[str]
 ) -> None:
     st.markdown("**Perbandingan Rata-Rata Fitur Numerik per Klaster**")
-    st.plotly_chart(numerical_mean_bars(clustered, numerical_cols), width="stretch")
+    st.plotly_chart(
+        numerical_mean_bars(clustered, numerical_cols, FEATURE_FORMATS),
+        width="stretch",
+    )
     st.caption(
         "Diagram batang ini menampilkan nilai rata-rata setiap fitur numerik untuk masing-masing klaster "
         "dalam satuan aslinya. Perbandingan ini memungkinkan identifikasi perbedaan besaran absolut "
@@ -417,14 +426,15 @@ def _render_mean_feature_section(
     )
 
 
-def _with_excluded_note(figure: Any, caption: str) -> str:
-    meta = dict(figure.layout.meta or {})
-    if meta.get("excluded_nonpositive"):
-        caption += (
-            f" Sebanyak {meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
-            "ditampilkan pada skala log."
-        )
-    return caption
+# [LOG SCALE FEATURE - DISABLED] Helper catatan skala log dinonaktifkan.
+# def _with_excluded_note(figure: Any, caption: str) -> str:
+#     meta = dict(figure.layout.meta or {})
+#     if meta.get("excluded_nonpositive"):
+#         caption += (
+#             f" Sebanyak {meta['excluded_nonpositive']:,} nilai nol atau negatif tidak dapat "
+#             "ditampilkan pada skala log."
+#         )
+#     return caption
 
 
 def _render_distribution_section(
@@ -433,28 +443,31 @@ def _render_distribution_section(
     numerical_cols: list[str],
     *,
     heading: str,
-    checkbox_key: str,
+    # [LOG SCALE FEATURE - DISABLED] checkbox_key: str,
     chart_title: str,
     caption: str,
     figure_builder: Callable[..., Any],
 ) -> None:
     st.markdown(heading)
-    log_usd = st.checkbox(
-        "Gunakan skala logaritmik untuk Nilai Impor (USD)",
-        key=checkbox_key,
-        value=False,
-    )
+    # [LOG SCALE FEATURE - DISABLED]
+    # log_usd = st.checkbox(
+    #     "Gunakan skala logaritmik untuk Nilai Impor (USD)",
+    #     key=checkbox_key,
+    #     value=False,
+    # )
     figure = figure_builder(
         clustered,
         stats,
         numerical_cols,
         FEATURE_LABELS,
         title=chart_title,
-        log_usd=log_usd,
+        # [LOG SCALE FEATURE - DISABLED] log_usd=log_usd,
         number_formats=FEATURE_FORMATS,
     )
     st.plotly_chart(figure, width="stretch")
-    st.caption(_with_excluded_note(figure, caption))
+    st.caption(caption)
+    # [LOG SCALE FEATURE - DISABLED]
+    # st.caption(_with_excluded_note(figure, caption))
 
 
 def _render_zscore_section(
@@ -504,7 +517,7 @@ def _render_profile_statistics(
         stats,
         numerical_cols,
         heading="**Ringkasan Statistik Kuartil Atribut Numerik per Klaster**",
-        checkbox_key="profile_box_log_usd",
+        # [LOG SCALE FEATURE - DISABLED] checkbox_key="profile_box_log_usd",
         chart_title="Ringkasan Statistik Kuartil Atribut Numerik per Klaster",
         caption=(
             "Boxplot menampilkan median, kuartil pertama (Q1), kuartil ketiga (Q3), IQR, dan pencilan "
@@ -518,8 +531,8 @@ def _render_profile_statistics(
         stats,
         numerical_cols,
         heading="**Pola Kepadatan Nilai Atribut Numerik Antar-Klaster**",
-        checkbox_key="profile_violin_log_usd",
-        chart_title="Kepadatan Nilai Atribut Numerik per Klaster (satuan asli)",
+        # [LOG SCALE FEATURE - DISABLED] checkbox_key="profile_violin_log_usd",
+        chart_title="Kepadatan Nilai Atribut Numerik per Klaster",
         caption=(
             "Violin plot menunjukkan kepadatan distribusi nilai setiap atribut numerik per klaster. "
             "Lebar violin mencerminkan kepadatan observasi, sedangkan garis mean menunjukkan rata-rata "
@@ -565,8 +578,9 @@ def _render_cluster_scatters(result: dict) -> None:
     st.subheader("Sebaran Klaster Nilai Impor terhadap Indikator Ekonomi Provinsi")
     st.caption(
         "Setiap titik merepresentasikan satu kombinasi pelabuhan–SITC, dengan warna menunjukkan "
-        "keanggotaan klaster. Sumbu menggunakan nilai asli tanpa transformasi. Aktifkan skala "
-        "logaritmik apabila distribusi nilai sangat menceng untuk memudahkan pembacaan pola."
+        "keanggotaan klaster. Sumbu menggunakan nilai asli tanpa transformasi."
+        # [LOG SCALE FEATURE - DISABLED] "Aktifkan skala logaritmik apabila distribusi nilai
+        # sangat menceng untuk memudahkan pembacaan pola."
     )
 
     specs = [
@@ -574,7 +588,7 @@ def _render_cluster_scatters(result: dict) -> None:
             "y": "china_investment_us_ribu",
             "y_label": "Investasi Tiongkok",
             "title": "Nilai Impor vs Investasi Tiongkok",
-            "key": "profile_scatter_log_investment",
+            # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_investment",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
                 "impor dan realisasi investasi Tiongkok di provinsi terkait. Pola konsentrasi atau "
@@ -586,7 +600,7 @@ def _render_cluster_scatters(result: dict) -> None:
             "y": "micro_small_industries",
             "y_label": "Jumlah Industri Mikro dan Kecil",
             "title": "Nilai Impor vs Jumlah Industri Mikro dan Kecil",
-            "key": "profile_scatter_log_industries",
+            # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_industries",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
                 "impor dan jumlah unit usaha industri mikro dan kecil di provinsi terkait. "
@@ -598,7 +612,7 @@ def _render_cluster_scatters(result: dict) -> None:
             "y": "pdrb",
             "y_label": "PDRB",
             "title": "Nilai Impor vs PDRB",
-            "key": "profile_scatter_log_pdrb",
+            # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_pdrb",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
                 "impor dan Produk Domestik Regional Bruto (PDRB) provinsi terkait. PDRB "
@@ -609,15 +623,16 @@ def _render_cluster_scatters(result: dict) -> None:
     ]
 
     for spec in specs:
-        log_scale = st.checkbox(
-            "Gunakan skala logaritmik",
-            key=spec["key"],
-            value=False,
-            help=(
-                "Skala logaritmik hanya mengubah tampilan sumbu. Nilai sumber dan label klaster "
-                "tidak berubah; observasi bernilai 0 tidak dapat ditampilkan."
-            ),
-        )
+        # [LOG SCALE FEATURE - DISABLED]
+        # log_scale = st.checkbox(
+        #     "Gunakan skala logaritmik",
+        #     key=spec["key"],
+        #     value=False,
+        #     help=(
+        #         "Skala logaritmik hanya mengubah tampilan sumbu. Nilai sumber dan label klaster "
+        #         "tidak berubah; observasi bernilai 0 tidak dapat ditampilkan."
+        #     ),
+        # )
         fig = cluster_scatter(
             clustered,
             "usd_value",
@@ -625,17 +640,18 @@ def _render_cluster_scatters(result: dict) -> None:
             "Nilai Impor (USD)",
             spec["y_label"],
             spec["title"],
-            log_scale=log_scale,
+            # [LOG SCALE FEATURE - DISABLED] log_scale=log_scale,
         )
         st.plotly_chart(fig, width="stretch")
 
         caption = spec["caption"]
         meta = dict(fig.layout.meta or {})
-        if meta.get("excluded_nonpositive"):
-            caption += (
-                f" Sebanyak {meta['excluded_nonpositive']:,} observasi bernilai 0 atau negatif "
-                "tidak dapat ditampilkan pada skala log."
-            )
+        # [LOG SCALE FEATURE - DISABLED]
+        # if meta.get("excluded_nonpositive"):
+        #     caption += (
+        #         f" Sebanyak {meta['excluded_nonpositive']:,} observasi bernilai 0 atau negatif "
+        #         "tidak dapat ditampilkan pada skala log."
+        #     )
         if meta.get("sampled"):
             caption += (
                 f" Visualisasi menggunakan sampel deterministik {meta['n_plotted']:,} dari "

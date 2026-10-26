@@ -221,12 +221,29 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({red},{green},{blue},{alpha})"
 
 
-def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Figure:
+def _format_bar_label(value: object, number_format: str) -> str:
+    """Format a bar label without scientific notation or trailing zeros."""
+    text = _format_number(value, number_format)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def numerical_mean_bars(
+    data: pd.DataFrame,
+    numerical_cols: list[str],
+    number_formats: dict[str, str] | None = None,
+) -> go.Figure:
     if not numerical_cols:
         return _empty_figure("Tidak ada fitur numerik.")
+    formats = number_formats or {}
     means = data.groupby("Cluster")[numerical_cols].mean().reset_index()
     long_df = means.melt(id_vars="Cluster", var_name="Fitur", value_name="Rata-rata")
     long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
+    long_df["Teks"] = [
+        _format_bar_label(value, formats.get(feature, ",.2f"))
+        for value, feature in zip(long_df["Rata-rata"], long_df["Fitur"])
+    ]
     colors = cluster_color_map(long_df["Label"])
     fig = px.bar(
         long_df,
@@ -237,9 +254,9 @@ def numerical_mean_bars(data: pd.DataFrame, numerical_cols: list[str]) -> go.Fig
         facet_col_wrap=2,
         color_discrete_map=colors,
         category_orders={"Label": list(colors)},
-        text="Rata-rata",
+        text="Teks",
     )
-    fig.update_traces(texttemplate="%{text:.3g}", textposition="outside")
+    fig.update_traces(texttemplate="%{text}", textposition="outside")
     fig.update_yaxes(matches=None, showticklabels=True)
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(showlegend=False)
