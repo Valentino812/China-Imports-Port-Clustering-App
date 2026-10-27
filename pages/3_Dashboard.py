@@ -983,7 +983,6 @@ def _render_kprototypes_config(modeling: dict) -> None:
                     "n_init",
                     "random_state",
                     "n_jobs",
-                    "n_clusters",
                     "gamma",
                 ],
                 "Nilai": [
@@ -991,7 +990,6 @@ def _render_kprototypes_config(modeling: dict) -> None:
                     str(config["n_init"]),
                     str(config["random_state"]),
                     str(config["n_jobs"]),
-                    str(config["n_clusters"]),
                     f"{modeling['gamma']:.4f}",
                 ],
             }

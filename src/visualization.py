@@ -949,7 +949,7 @@ def kprototypes_silhouette_samples(
 
 def silhouette_plot(
     silhouette_df: pd.DataFrame,
-    title: str = "Silhouette Plot per Klaster (Dissimilarity Campuran)",
+    title: str = "Silhouette Plot per Klaster",
     sampled: bool = False,
     n_total: int | None = None,
 ) -> go.Figure:
