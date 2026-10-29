@@ -129,6 +129,13 @@ def _sitc_label(value: str) -> str:
     return f"SITC {value}: {label}" if label else f"SITC {value}"
 
 
+def _sitc_legend_caption() -> str:
+    """Return the SITC code legend used in dashboard captions."""
+    return "\n".join(
+        f"- {_sitc_label(code)}" for code in sorted(SITC_LABELS, key=int)
+    )
+
+
 DASHBOARD_CSS = r"""
 <style>
 /* ─── Dashboard: unhide sidebar only while this page is rendered ────── */
@@ -411,6 +418,8 @@ def _render_categorical_modes(
         "Tabel ini menampilkan nilai yang paling sering muncul (modus) pada setiap fitur kategori SITC (Standard International Trade Classification) "
         "untuk masing-masing klaster. Apabila terdapat lebih dari satu nilai dengan frekuensi tertinggi, "
         "seluruh nilai tersebut ditampilkan."
+        "\n\n**Keterangan kode SITC:**\n"
+        + _sitc_legend_caption()
     )
 
 
@@ -1251,7 +1260,11 @@ def _render_map(result: dict) -> None:
             f" Sebanyak {len(collisions):,} pelabuhan berbagi koordinat geografis dengan pelabuhan lain "
             "sehingga marker-nya saling bertumpang tindih."
         )
-    st.caption(caption)
+    st.caption(
+        caption
+        + "\n\n**Keterangan kode SITC:**\n"
+        + _sitc_legend_caption()
+    )
 
     if not collisions.empty:
         with st.expander("Pelabuhan dengan koordinat identik"):
