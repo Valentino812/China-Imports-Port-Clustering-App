@@ -248,8 +248,10 @@ def _cluster_structure(clustered: pd.DataFrame) -> pd.DataFrame:
     return struct.reset_index()
 
 
-def _get_mode_text(series: pd.Series) -> str:
+def _get_mode_text(series: pd.Series, prefix: str | None = None) -> str:
     modes = series.mode(dropna=True).astype(str).tolist()
+    if prefix:
+        modes = [f"{prefix} {mode}" for mode in modes]
     return ", ".join(modes) if modes else "Tidak tersedia"
 
 
@@ -342,7 +344,9 @@ def _render_cluster_overview(struct: pd.DataFrame) -> None:
     st.markdown("**Distribusi Observasi per Klaster**")
     overview = struct[
         ["Cluster", "jumlah_kombinasi_Port_SITC", "persentase_dataset"]
-    ].rename(
+    ].copy()
+    overview["Cluster"] = overview["Cluster"].apply(lambda c: f"Cluster {c}")
+    overview = overview.rename(
         columns={
             "Cluster": "Klaster",
             "jumlah_kombinasi_Port_SITC": "Jumlah Observasi",
@@ -379,9 +383,11 @@ def _render_categorical_modes(
     st.markdown("**Nilai Modus Fitur Kategorikal per Klaster**")
     mode_rows = []
     for cluster_id, group in clustered.groupby("Cluster", sort=True):
-        row = {"Klaster": cluster_id}
+        row = {"Klaster": f"Cluster {cluster_id}"}
         for col in categorical_cols:
-            row[f"Modus {col.upper()}"] = _get_mode_text(group[col])
+            row[f"Modus {col.upper()}"] = _get_mode_text(
+                group[col], prefix="SITC" if col == "sitc" else None
+            )
         mode_rows.append(row)
     st.dataframe(pd.DataFrame(mode_rows), width="stretch", hide_index=True)
     st.caption(
@@ -397,7 +403,11 @@ def _render_sitc_distribution(clustered: pd.DataFrame) -> None:
         clustered["Cluster"], clustered["sitc"], normalize="index"
     ).mul(100)
     sitc_pct = sitc_pct.reindex(sorted(sitc_pct.columns), axis=1).round(2)
-    sitc_display = sitc_pct.reset_index().rename(columns={"Cluster": "Klaster"})
+    sitc_display = sitc_pct.reset_index()
+    sitc_display["Cluster"] = sitc_display["Cluster"].apply(lambda c: f"Cluster {c}")
+    sitc_display.columns = ["Klaster"] + [
+        f"SITC {col}" for col in sitc_pct.columns
+    ]
     st.dataframe(sitc_display, width="stretch", hide_index=True)
     st.caption(
         "Tabel lintas-tabulasi (crosstab) ini menunjukkan proporsi (%) setiap kategori SITC "
@@ -516,13 +526,18 @@ def _render_profile_statistics(
         clustered,
         stats,
         numerical_cols,
-        heading="**Ringkasan Statistik Kuartil Atribut Numerik per Klaster**",
+        heading="**Statistik Kuartil Atribut Numerik per Klaster**",
         # [LOG SCALE FEATURE - DISABLED] checkbox_key="profile_box_log_usd",
-        chart_title="Ringkasan Statistik Kuartil Atribut Numerik per Klaster",
+        chart_title="Statistik Kuartil Atribut Numerik per Klaster",
         caption=(
             "Boxplot menampilkan median, kuartil pertama (Q1), kuartil ketiga (Q3), IQR, dan pencilan "
             "untuk setiap fitur numerik per klaster. Whisker menggunakan aturan 1,5 × IQR; pencilan "
-            "di luar whisker tetap ditampilkan."
+            "di luar whisker tetap ditampilkan.Boxplot menampilkan median, kuartil pertama (Q1), kuartil "
+            "ketiga (Q3), IQR, dan pencilan setiap fitur numerik per klaster. Garis di dalam kotak menunjukkan median"
+            ", sedangkan tinggi kotak menggambarkan sebaran 50% data bagian tengah. *Whisker* merupakan garis yang memanjang" 
+            "dari kotak hingga nilai data terjauh yang masih berada dalam batas 1,5 × IQR, sementara titik di luarnya "
+            "merupakan pencilan. Perbandingan elemen tersebut membantu mengidentifikasi perbedaan kecenderungan nilai"
+            "dan penyebaran data antar-klaster."
         ),
         figure_builder=cluster_boxplots,
     )
@@ -530,7 +545,7 @@ def _render_profile_statistics(
         clustered,
         stats,
         numerical_cols,
-        heading="**Pola Kepadatan Nilai Atribut Numerik Antar-Klaster**",
+        heading="**Pola Kepadatan Nilai Atribut Numerik Per Klaster**",
         # [LOG SCALE FEATURE - DISABLED] checkbox_key="profile_violin_log_usd",
         chart_title="Kepadatan Nilai Atribut Numerik per Klaster",
         caption=(

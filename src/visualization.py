@@ -260,7 +260,7 @@ def numerical_mean_bars(
     fig.update_yaxes(matches=None, showticklabels=True)
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(showlegend=False)
-    return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster (satuan asli)")
+    return _style(fig, height=420, title="Rata-rata Fitur Numerik per Klaster")
 
 
 def _minimal_feature_stats(values: np.ndarray) -> dict[str, object]:
