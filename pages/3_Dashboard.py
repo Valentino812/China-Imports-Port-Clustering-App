@@ -92,22 +92,33 @@ FEATURE_SPECS = [
     },
     {
         "feature": "pdrb",
-        "label": "PDRB",
+        "label": "PDRB (Miliar rupiah)",
         "number_format": ",.2f",
     },
     {
         "feature": "china_investment_us_ribu",
-        "label": "Investasi Tiongkok",
+        "label": "Nilai Investasi Tiongkok (Ribuan USD)",
         "number_format": ",.2f",
     },
     {
         "feature": "micro_small_industries",
-        "label": "Jumlah Industri Mikro dan Kecil",
+        "label": "Jumlah Industri Mikro Kecil",
         "number_format": ",.0f",
     },
 ]
 
-FEATURE_LABELS = {spec["feature"]: spec["label"] for spec in FEATURE_SPECS}
+# Label tampilan saja. Kunci tetap memakai nama kolom asli agar proses
+# preprocessing dan modelling tidak berubah.
+FEATURE_VALUE_LABELS = {
+    spec["feature"]: spec["label"] for spec in FEATURE_SPECS
+}
+FEATURE_SHORT_LABELS = {
+    "usd_value": "Nilai Impor",
+    "sitc": "SITC",
+    "pdrb": "PDRB",
+    "china_investment_us_ribu": "Nilai Investasi Tiongkok",
+    "micro_small_industries": "Jumlah Industri Mikro Kecil",
+}
 FEATURE_FORMATS = {
     spec["feature"]: spec["number_format"] for spec in FEATURE_SPECS
 }
@@ -365,8 +376,14 @@ def _render_numeric_stats_table(stats: pd.DataFrame) -> None:
     if stats.empty:
         st.warning("Statistik fitur numerik tidak tersedia untuk dataset ini.")
     else:
+        display_stats = stats[
+            ["Klaster", "Fitur", "Mean", "Median", "Q1", "Q3", "IQR"]
+        ].copy()
+        display_stats["Fitur"] = display_stats["Fitur"].map(
+            lambda feature: FEATURE_VALUE_LABELS.get(feature, feature)
+        )
         st.dataframe(
-            stats[["Klaster", "Fitur", "Mean", "Median", "Q1", "Q3", "IQR"]].round(3),
+            display_stats.round(3),
             width="stretch",
             hide_index=True,
         )
@@ -380,7 +397,7 @@ def _render_numeric_stats_table(stats: pd.DataFrame) -> None:
 def _render_categorical_modes(
     clustered: pd.DataFrame, categorical_cols: list[str]
 ) -> None:
-    st.markdown("**Nilai Modus Fitur Kategorikal per Klaster**")
+    st.markdown("**Nilai Modus Fitur Kategori SITC per Klaster**")
     mode_rows = []
     for cluster_id, group in clustered.groupby("Cluster", sort=True):
         row = {"Klaster": f"Cluster {cluster_id}"}
@@ -391,7 +408,7 @@ def _render_categorical_modes(
         mode_rows.append(row)
     st.dataframe(pd.DataFrame(mode_rows), width="stretch", hide_index=True)
     st.caption(
-        "Tabel ini menampilkan nilai yang paling sering muncul (modus) pada setiap fitur kategorikal "
+        "Tabel ini menampilkan nilai yang paling sering muncul (modus) pada setiap fitur kategori SITC (Standard International Trade Classification) "
         "untuk masing-masing klaster. Apabila terdapat lebih dari satu nilai dengan frekuensi tertinggi, "
         "seluruh nilai tersebut ditampilkan."
     )
@@ -410,12 +427,12 @@ def _render_sitc_distribution(clustered: pd.DataFrame) -> None:
     ]
     st.dataframe(sitc_display, width="stretch", hide_index=True)
     st.caption(
-        "Tabel lintas-tabulasi (crosstab) ini menunjukkan proporsi (%) setiap kategori SITC "
+        "Tabel lintas-tabulasi (crosstab) ini menunjukkan proporsi (%) setiap kategori SITC (Standard International Trade Classification) "
         "terhadap total observasi dalam klaster yang bersangkutan."
     )
     st.plotly_chart(sitc_stacked_bar(sitc_pct), width="stretch")
     st.caption(
-        "Diagram batang bertumpuk ini memvisualisasikan komposisi kategori SITC di setiap klaster "
+        "Diagram batang bertumpuk ini memvisualisasikan komposisi kategori SITC (Standard International Trade Classification) di setiap klaster "
         "dalam bentuk proporsi relatif, sehingga perbedaan pola komoditas antara klaster dapat "
         "dibandingkan secara langsung."
     )
@@ -426,7 +443,12 @@ def _render_mean_feature_section(
 ) -> None:
     st.markdown("**Perbandingan Rata-Rata Fitur Numerik per Klaster**")
     st.plotly_chart(
-        numerical_mean_bars(clustered, numerical_cols, FEATURE_FORMATS),
+        numerical_mean_bars(
+            clustered,
+            numerical_cols,
+            FEATURE_FORMATS,
+            feature_labels=FEATURE_VALUE_LABELS,
+        ),
         width="stretch",
     )
     st.caption(
@@ -469,7 +491,7 @@ def _render_distribution_section(
         clustered,
         stats,
         numerical_cols,
-        FEATURE_LABELS,
+        FEATURE_VALUE_LABELS,
         title=chart_title,
         # [LOG SCALE FEATURE - DISABLED] log_usd=log_usd,
         number_formats=FEATURE_FORMATS,
@@ -492,7 +514,9 @@ def _render_zscore_section(
         .divide(global_stds, axis="columns")
         .fillna(0)
     )
-    st.plotly_chart(cluster_z_heatmap(z_profile), width="stretch")
+    st.plotly_chart(
+        cluster_z_heatmap(z_profile, FEATURE_SHORT_LABELS), width="stretch"
+    )
     st.caption(
         "Heatmap ini menampilkan Z-score rata-rata setiap fitur numerik per klaster relatif terhadap "
         "rata-rata dan standar deviasi global dataset. Nilai positif mengindikasikan fitur berada "
@@ -511,7 +535,7 @@ def _render_profile_statistics(
     st.subheader("Profil Statistik Klaster")
     st.caption(
         "Bagian ini merangkum karakteristik setiap klaster melalui jumlah observasi, "
-        "statistik deskriptif fitur numerik, modus fitur kategorikal, distribusi SITC, "
+        "statistik deskriptif fitur numerik, modus fitur kategorikal, distribusi SITC (Standard International Trade Classification), "
         "perbandingan rata-rata fitur, sebaran kuartil, kepadatan nilai, dan heatmap Z-score. "
         "Seluruh statistik dihitung dari baris pelabuhan × SITC, bukan dengan bobot sama "
         "antarprovinsi."
@@ -601,8 +625,8 @@ def _render_cluster_scatters(result: dict) -> None:
     specs = [
         {
             "y": "china_investment_us_ribu",
-            "y_label": "Investasi Tiongkok",
-            "title": "Nilai Impor vs Investasi Tiongkok",
+            "y_label": "Nilai Investasi Tiongkok (Ribuan USD)",
+            "title": "Nilai Impor (USD) vs Nilai Investasi Tiongkok (Ribuan USD)",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_investment",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -613,8 +637,8 @@ def _render_cluster_scatters(result: dict) -> None:
         },
         {
             "y": "micro_small_industries",
-            "y_label": "Jumlah Industri Mikro dan Kecil",
-            "title": "Nilai Impor vs Jumlah Industri Mikro dan Kecil",
+            "y_label": "Jumlah Industri Mikro Kecil",
+            "title": "Nilai Impor (USD) vs Jumlah Industri Mikro Kecil",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_industries",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -625,8 +649,8 @@ def _render_cluster_scatters(result: dict) -> None:
         },
         {
             "y": "pdrb",
-            "y_label": "PDRB",
-            "title": "Nilai Impor vs PDRB",
+            "y_label": "PDRB (Miliar rupiah)",
+            "title": "Nilai Impor (USD) vs PDRB (Miliar rupiah)",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_pdrb",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -692,7 +716,12 @@ def _render_shap_section(result: dict) -> None:
         return
 
     st.markdown("**Kepentingan Fitur Global (Global Feature Importance)**")
-    st.plotly_chart(global_shap_bar(shap_result["global_importance"]), width="stretch")
+    st.plotly_chart(
+        global_shap_bar(
+            shap_result["global_importance"], FEATURE_SHORT_LABELS
+        ),
+        width="stretch",
+    )
     st.caption(
         "Diagram batang ini menampilkan rata-rata nilai absolut SHAP setiap fitur di seluruh "
         "observasi data uji dan seluruh kelas klaster, sebagai ukuran kepentingan fitur secara "
@@ -701,7 +730,10 @@ def _render_shap_section(result: dict) -> None:
 
     st.markdown("**Kontribusi Fitur per Kelas Klaster (Heatmap)**")
     st.plotly_chart(
-        shap_cluster_heatmap(shap_result["importance_per_cluster"]), width="stretch"
+        shap_cluster_heatmap(
+            shap_result["importance_per_cluster"], FEATURE_SHORT_LABELS
+        ),
+        width="stretch",
     )
     st.caption(
         "Heatmap ini menampilkan rata-rata nilai absolut SHAP per fitur untuk setiap kelas klaster "
@@ -714,7 +746,7 @@ def _render_shap_section(result: dict) -> None:
     classes = shap_result["classes"]
     features = result["modeling"]["X_model"].loc[
         shap_result["X_eval"].index, result["modeling"]["feature_cols"]
-    ]
+    ].rename(columns=FEATURE_SHORT_LABELS)
     tabs = st.tabs([f"Cluster {c}" for c in classes])
     for tab, cluster_id in zip(tabs, classes):
         with tab:
@@ -723,7 +755,7 @@ def _render_shap_section(result: dict) -> None:
                 fig = shap_beeswarm_figure(
                     grouped_values.to_numpy(),
                     features,
-                    f"SHAP Beeswarm — Kontribusi ke Cluster {cluster_id}",
+                    f"Kontribusi Fitur pada Cluster {cluster_id} (SHAP Beeswarm)",
                 )
                 st.pyplot(fig, width="stretch")
                 st.caption(
@@ -1196,6 +1228,12 @@ def _render_map(result: dict) -> None:
             "port",
             f"Sebaran Klaster Pelabuhan SITC {selected_sitc}",
             color_col="Klaster",
+            hover_labels={
+                "Provinsi": "Provinsi",
+                "sitc": "SITC",
+                "usd_value": "Nilai Impor (USD)",
+                "Klaster": "Klaster",
+            },
         ),
         width="stretch",
     )

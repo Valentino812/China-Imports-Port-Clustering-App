@@ -233,10 +233,12 @@ def numerical_mean_bars(
     data: pd.DataFrame,
     numerical_cols: list[str],
     number_formats: dict[str, str] | None = None,
+    feature_labels: dict[str, str] | None = None,
 ) -> go.Figure:
     if not numerical_cols:
         return _empty_figure("Tidak ada fitur numerik.")
     formats = number_formats or {}
+    labels = feature_labels or {}
     means = data.groupby("Cluster")[numerical_cols].mean().reset_index()
     long_df = means.melt(id_vars="Cluster", var_name="Fitur", value_name="Rata-rata")
     long_df["Label"] = long_df["Cluster"].apply(_cluster_label)
@@ -244,6 +246,7 @@ def numerical_mean_bars(
         _format_bar_label(value, formats.get(feature, ",.2f"))
         for value, feature in zip(long_df["Rata-rata"], long_df["Fitur"])
     ]
+    long_df["Fitur"] = long_df["Fitur"].map(lambda feature: labels.get(feature, feature))
     colors = cluster_color_map(long_df["Label"])
     fig = px.bar(
         long_df,
@@ -573,11 +576,17 @@ def sitc_stacked_bar(sitc_distribution: pd.DataFrame) -> go.Figure:
     return _style(fig, height=400, title="Komposisi Kelompok SITC per Klaster")
 
 
-def cluster_z_heatmap(z_profile: pd.DataFrame) -> go.Figure:
+def cluster_z_heatmap(
+    z_profile: pd.DataFrame,
+    feature_labels: dict[str, str] | None = None,
+) -> go.Figure:
     if z_profile.empty:
         return _empty_figure("Tidak ada profil terstandardisasi untuk ditampilkan.")
+    display_profile = z_profile
+    if feature_labels:
+        display_profile = z_profile.rename(columns=feature_labels)
     fig = px.imshow(
-        z_profile,
+        display_profile,
         aspect="auto",
         color_continuous_scale="RdBu_r",
         zmin=-2,
@@ -609,10 +618,18 @@ def elbow_line(elbow_df: pd.DataFrame, selected_k: int) -> go.Figure:
     return _style(fig, height=380, title="Elbow Method untuk K-Prototypes")
 
 
-def global_shap_bar(global_importance: pd.DataFrame) -> go.Figure:
+def global_shap_bar(
+    global_importance: pd.DataFrame,
+    feature_labels: dict[str, str] | None = None,
+) -> go.Figure:
     if global_importance is None or global_importance.empty:
         return _empty_figure("Global SHAP importance tidak tersedia.")
-    df = global_importance.sort_values("Mean absolute SHAP")
+    df = global_importance.copy()
+    if feature_labels:
+        df["Fitur"] = df["Fitur"].map(
+            lambda feature: feature_labels.get(feature, feature)
+        )
+    df = df.sort_values("Mean absolute SHAP")
     fig = px.bar(
         df,
         x="Mean absolute SHAP",
@@ -625,11 +642,17 @@ def global_shap_bar(global_importance: pd.DataFrame) -> go.Figure:
     return _style(fig, height=360, title="Global Feature Importance (SHAP)")
 
 
-def shap_cluster_heatmap(importance_per_cluster: pd.DataFrame) -> go.Figure:
+def shap_cluster_heatmap(
+    importance_per_cluster: pd.DataFrame,
+    feature_labels: dict[str, str] | None = None,
+) -> go.Figure:
     if importance_per_cluster is None or importance_per_cluster.empty:
         return _empty_figure("Kontribusi SHAP per kelas klaster tidak tersedia.")
+    display_importance = importance_per_cluster
+    if feature_labels:
+        display_importance = importance_per_cluster.rename(columns=feature_labels)
     fig = px.imshow(
-        importance_per_cluster,
+        display_importance,
         aspect="auto",
         color_continuous_scale="YlOrRd",
         text_auto=".4f",
@@ -690,6 +713,7 @@ def geo_scatter(
     title: str,
     color_col: str = "Cluster",
     legend_title: str = "Klaster",
+    hover_labels: dict[str, str] | None = None,
 ) -> go.Figure:
     """Scatter map whose markers are coloured by a discrete category.
 
@@ -710,6 +734,10 @@ def geo_scatter(
     if "usd_value" in df.columns:
         hover_data["usd_value"] = ":,.2f"
 
+    labels = {group_col: legend_title}
+    if hover_labels:
+        labels.update(hover_labels)
+
     fig = px.scatter_geo(
         df,
         lat=lat_col,
@@ -719,7 +747,7 @@ def geo_scatter(
         hover_data=hover_data,
         category_orders={group_col: groups},
         color_discrete_map=color_map,
-        labels={group_col: legend_title},
+        labels=labels,
         scope="asia",
         projection="natural earth",
         title=title,
@@ -841,7 +869,12 @@ def cluster_scatter(
         hover_data=hover_data,
         color_discrete_map=colors,
         category_orders={"__klaster__": list(colors)},
-        labels={x_col: x_label, y_col: y_label, "__klaster__": "Klaster"},
+        labels={
+            x_col: x_label,
+            y_col: y_label,
+            "sitc": "SITC",
+            "__klaster__": "Klaster",
+        },
         title=title,
     )
     fig.update_traces(
