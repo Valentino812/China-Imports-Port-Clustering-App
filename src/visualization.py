@@ -576,6 +576,91 @@ def sitc_stacked_bar(sitc_distribution: pd.DataFrame) -> go.Figure:
     return _style(fig, height=400, title="Komposisi Kelompok SITC per Klaster")
 
 
+def sitc_entropy_bars(
+    data: pd.DataFrame,
+    categorical_col: str = "sitc",
+    title: str = "Normalized Entropy Kategori SITC per Klaster",
+) -> go.Figure:
+    """Bar chart of per-cluster normalised Shannon entropy of the SITC column.
+
+    ``H_norm = -sum(p_i * ln(p_i)) / ln(m)`` where ``p_i`` is the proportion of
+    SITC category ``i`` within the cluster and ``m`` is the number of unique
+    SITC categories in the whole dataset. The denominator is kept constant
+    across clusters so the values are comparable; without it, a cluster with
+    only two evenly split categories would also score 1.0.
+    """
+    if (
+        data is None
+        or data.empty
+        or "Cluster" not in data.columns
+        or categorical_col not in data.columns
+    ):
+        return _empty_figure("Tidak ada data SITC untuk ditampilkan.")
+
+    df = data[["Cluster", categorical_col]].dropna()
+    if df.empty:
+        return _empty_figure("Tidak ada data SITC untuk ditampilkan.")
+
+    categories = df[categorical_col].astype(str)
+    m = int(categories.nunique())
+    denominator = float(np.log(m)) if m > 1 else 0.0
+
+    rows: list[dict[str, object]] = []
+    for cluster, group in df.groupby("Cluster", sort=True):
+        proportions = (
+            group[categorical_col].astype(str).value_counts(normalize=True).to_numpy(dtype=float)
+        )
+        # ``<= 0`` also normalises ``-0.0`` produced by summing zeros.
+        entropy = float(-(proportions * np.log(proportions)).sum())
+        if entropy <= 0.0:
+            entropy = 0.0
+        rows.append(
+            {
+                "Cluster": cluster,
+                "H_norm": entropy / denominator if denominator > 0 else 0.0,
+                "H": entropy,
+                "Kategori": int(len(proportions)),
+                "N": int(len(group)),
+            }
+        )
+
+    entropy_df = pd.DataFrame(rows)
+    entropy_df["Label"] = entropy_df["Cluster"].apply(_cluster_label)
+    entropy_df["Teks"] = [
+        _format_number(value, ".3f") for value in entropy_df["H_norm"]
+    ]
+    colors = cluster_color_map(entropy_df["Label"])
+    fig = px.bar(
+        entropy_df,
+        x="Label",
+        y="H_norm",
+        color="Label",
+        color_discrete_map=colors,
+        category_orders={"Label": list(colors)},
+        text="Teks",
+        custom_data=["H", "Kategori", "N"],
+    )
+    fig.update_traces(
+        texttemplate="%{text}",
+        textposition="outside",
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "H_norm: %{y:.4f}<br>"
+            "H (nats): %{customdata[0]:.4f}<br>"
+            "Kategori SITC: %{customdata[1]}<br>"
+            "Observasi: %{customdata[2]:,}<extra></extra>"
+        ),
+    )
+    fig.update_xaxes(title_text="Klaster")
+    fig.update_yaxes(
+        title_text="Normalized Entropy (H / ln m)",
+        range=[0, 1.05],
+        tickformat=".2f",
+    )
+    fig.update_layout(showlegend=False, meta={"m": m})
+    return _style(fig, height=420, title=title)
+
+
 def cluster_z_heatmap(
     z_profile: pd.DataFrame,
     feature_labels: dict[str, str] | None = None,

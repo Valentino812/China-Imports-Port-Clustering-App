@@ -51,7 +51,7 @@ Tujuan utama aplikasi:
 1. **Mengotomatiskan prapemrosesan data impor pelabuhan**, termasuk konversi HS 2022 ke SITC Rev. 4, agregasi, penggabungan data provinsi, dan penggabungan geolokasi.
 2. **Membentuk klaster pelabuhan × SITC** menggunakan K-Prototypes dengan jumlah klaster yang dapat dipilih pada rentang K = 2–8.
 3. **Mengevaluasi kualitas klaster** menggunakan Elbow dan Silhouette campuran K-Prototypes.
-4. **Menginterpretasikan klaster** melalui statistik deskriptif, distribusi SITC, scatter plot, boxplot, violinplot, heatmap Z-score, dan SHAP.
+4. **Menginterpretasikan klaster** melalui statistik deskriptif, distribusi dan normalized entropy SITC, scatter plot, boxplot, violinplot, heatmap Z-score, dan SHAP.
 5. **Memetakan sebaran pelabuhan** berdasarkan klaster dan kategori SITC.
 6. **Menyediakan ekspor dataset** dari setiap tahap pipeline agar hasil dapat diaudit dan direproduksi.
 7. **Memisahkan evaluasi model utama K-Prototypes dari evaluasi model surrogate Random Forest**, sehingga pembaca tidak mencampur kualitas klaster dengan fidelity model interpretasi.
@@ -105,6 +105,7 @@ Tujuan utama aplikasi:
 - Statistik deskriptif fitur numerik per klaster.
 - Modus fitur kategorikal SITC per klaster.
 - Distribusi proporsi SITC per klaster.
+- Tingkat keragaman kategori SITC per klaster (normalized entropy).
 - Perbandingan rata-rata fitur numerik.
 - Boxplot kuartil.
 - Violinplot kepadatan distribusi.
@@ -208,6 +209,7 @@ Terdapat tiga tab:
    - statistik deskriptif fitur numerik;
    - modus SITC per klaster beserta daftar arti kode SITC 0–9;
    - tabel dan stacked bar proporsi SITC;
+   - bar chart normalized entropy keragaman kategori SITC;
    - perbandingan rata-rata fitur numerik;
    - boxplot kuartil;
    - violinplot kepadatan;
@@ -500,6 +502,7 @@ _render_profile()
 │   ├── _render_numeric_stats_table()
 │   ├── _render_categorical_modes()
 │   ├── _render_sitc_distribution()
+│   ├── _render_sitc_entropy() → sitc_entropy_bars()
 │   ├── _render_mean_feature_section()
 │   ├── _render_distribution_section() → cluster_boxplots / cluster_violinplots
 │   └── _render_zscore_section()
@@ -656,6 +659,7 @@ Modul: `src/visualization.py`
 - `cluster_boxplots()` — boxplot kuartil.
 - `cluster_violinplots()` — violinplot kepadatan.
 - `sitc_stacked_bar()` — komposisi SITC.
+- `sitc_entropy_bars()` — normalized entropy kategori SITC per klaster.
 - `cluster_z_heatmap()` — Z-score profil klaster.
 - `elbow_line()` — Elbow curve.
 - `global_shap_bar()` — global SHAP importance.

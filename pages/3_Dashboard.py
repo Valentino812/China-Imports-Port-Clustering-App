@@ -35,6 +35,7 @@ from src.visualization import (
     shap_beeswarm_figure,
     shap_cluster_heatmap,
     silhouette_plot,
+    sitc_entropy_bars,
     sitc_stacked_bar,
 )
 
@@ -447,6 +448,19 @@ def _render_sitc_distribution(clustered: pd.DataFrame) -> None:
     )
 
 
+def _render_sitc_entropy(clustered: pd.DataFrame) -> None:
+    st.markdown("**Normalized Entropy Kategori SITC per Klaster**")
+    st.plotly_chart(sitc_entropy_bars(clustered), width="stretch")
+    st.caption(
+        "Grafik batang ini menampilkan normalized entropy untuk mengukur tingkat keragaman "
+        "kategori barang (SITC) pada setiap klaster. Nilai nol menunjukkan bahwa seluruh data "
+        "dalam klaster tersebut sangat fokus atau terkonsentrasi pada satu kategori barang saja, "
+        "sedangkan nilai yang mendekati satu menandakan bahwa jenis barang tersebar secara merata "
+        "di dalam klaster. Dengan visualisasi ini, tingkat keragaman antar klaster dapat "
+        "dibandingkan satu sama lain."
+    )
+
+
 def _render_mean_feature_section(
     clustered: pd.DataFrame, numerical_cols: list[str]
 ) -> None:
@@ -554,6 +568,7 @@ def _render_profile_statistics(
     _render_numeric_stats_table(stats)
     _render_categorical_modes(clustered, categorical_cols)
     _render_sitc_distribution(clustered)
+    _render_sitc_entropy(clustered)
     _render_mean_feature_section(clustered, numerical_cols)
     _render_distribution_section(
         clustered,
