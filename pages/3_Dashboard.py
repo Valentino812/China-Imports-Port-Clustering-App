@@ -17,10 +17,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.config import OPTIMAL_K
+from src.config import OPTIMAL_K, SITC_LABELS
 from src.modeling import SILHOUETTE_SAMPLE_SIZE
+from src.narrative import generate_all_cluster_narratives
 from src.visualization import (
     cluster_boxplots,
+    cluster_color_map,
     cluster_numeric_stats,
     cluster_pie,
     cluster_scatter,
@@ -45,7 +47,7 @@ VIEW_TITLES = {
     "Ringkasan": (
         "Ringkasan Hasil Klasterisasi",
         "Tinjauan menyeluruh atas hasil pengelompokan kombinasi pelabuhan dan kategori komoditas SITC, "
-        "mencakup jumlah observasi, komposisi klaster, serta proporsi distribusi tiap kelompok.",
+        "mencakup jumlah observasi, proporsi distribusi serta analisis deskriptif karakteristik setiap kelompok.",
     ),
     "Profil Klaster": (
         "Karakteristik & Profil Klaster",
@@ -72,18 +74,8 @@ VIEW_TITLES = {
 }
 
 # Nama kelompok SITC Rev. 4 berdasarkan digit pertama kode SITC.
-SITC_LABELS = {
-    "0": "Bahan makanan dan binatang hidup",
-    "1": "Minuman dan tembakau",
-    "2": "Bahan mentah, tidak dapat dimakan, kecuali bahan bakar",
-    "3": "Bahan bakar mineral, pelumas, dan bahan terkait",
-    "4": "Minyak, lemak, dan lilin hewani serta nabati",
-    "5": "Bahan kimia dan produk terkait",
-    "6": "Barang manufaktur berbasis bahan baku",
-    "7": "Mesin dan peralatan transportasi",
-    "8": "Barang manufaktur jadi",
-    "9": "Komoditas dan transaksi tidak diklasifikasikan di tempat lain",
-}
+# Didefinisikan terpusat di ``src.config`` agar narasi Dashboard memakai
+# deskripsi yang sama.
 
 FEATURE_SPECS = [
     {
@@ -347,6 +339,97 @@ def _render_summary(result: dict) -> None:
     )
     st.dataframe(display, width="stretch", hide_index=True)
 
+    _render_cluster_narratives(result)
+
+
+def _narrative_accent_css(clusters: list[int]) -> str:
+    """Return CSS that paints each narrative card's left border with its colour.
+
+    ``cluster_color_map`` is the single source of truth for cluster colours, so
+    the accent always matches the cluster bar/pie/scatter charts.
+    """
+    colors = cluster_color_map(clusters)
+    rules = "\n".join(
+        f".st-key-narrative_cluster_{cluster}[data-testid='stExpander'], "
+        f".st-key-narrative_cluster_{cluster} [data-testid='stExpander'] "
+        f"{{ border-left-color: {colors[f'Cluster {cluster}']} !important; }}"
+        for cluster in clusters
+    )
+    return f"""
+<style>
+/* Kartu narasi karakteristik klaster */
+[class*='st-key-narrative_cluster_'][data-testid='stExpander'],
+[class*='st-key-narrative_cluster_'] [data-testid='stExpander'] {{
+    border: 1px solid rgba(226, 229, 241, 0.95) !important;
+    border-left: 5px solid #C9CED9 !important;
+    border-radius: 12px !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 1px 4px rgba(79, 107, 237, 0.05);
+    overflow: hidden;
+}}
+{rules}
+</style>
+"""
+
+
+def _render_cluster_narratives(result: dict) -> None:
+    """Render the automatic descriptive analysis below the summary table."""
+    st.subheader("Analisis Deskriptif Karakteristik Klaster")
+    st.caption(
+        "Narasi berikut dibentuk otomatis dari statistik fitur numerik, komposisi kategori "
+        "SITC, kontribusi fitur pembeda, dan persebaran geografis pelabuhan pada setiap "
+        "klaster. Seluruh statistik dihitung dari dataset final setelah prapemrosesan "
+        "dan pembatasan outlier (IQR capping), menggunakan nilai dalam satuan aslinya."
+    )
+
+    narratives = generate_all_cluster_narratives(result["modeling"])
+    if not narratives:
+        st.info(
+            "Analisis deskriptif belum dapat dibentuk dari hasil analisis yang tersedia."
+        )
+        return
+
+    st.markdown(
+        _narrative_accent_css([item["cluster"] for item in narratives]),
+        unsafe_allow_html=True,
+    )
+
+    for narrative in narratives:
+        title = (
+            f"Cluster {narrative['cluster']}: "
+            f"Terdiri atas {narrative['port_count']:,} pelabuhan unik"
+        )
+        with st.expander(
+            title,
+            expanded=False,
+            key=f"narrative_cluster_{narrative['cluster']}",
+        ):
+            st.markdown("**A. Karakteristik Numerik**")
+            for item in narrative["numeric"]:
+                st.markdown(f"**{item['label']}**")
+                st.write(item["paragraph"])
+
+            st.markdown("**B. Karakteristik Kategorikal**")
+            for paragraph in narrative["categorical"]["paragraphs"]:
+                st.write(paragraph)
+            others = narrative["categorical"]["other_distribution"]
+            if others:
+                st.markdown("Distribusi kategori lainnya adalah sebagai berikut:")
+                st.markdown(
+                    "\n".join(
+                        f"- **SITC {row['code']}** — {row['description']}: "
+                        f"{row['percentage_label']}"
+                        for row in others
+                    )
+                )
+
+            st.markdown("**C. Karakteristik Geografis**")
+            for paragraph in narrative["geographic"]["paragraphs"]:
+                st.write(paragraph)
+
+            if narrative["summary"]:
+                st.markdown("**D. Identitas Utama Klaster**")
+                st.write(narrative["summary"])
 
 
 # ---------------------------------------------------------------------------

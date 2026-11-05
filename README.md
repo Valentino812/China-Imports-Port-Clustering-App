@@ -110,6 +110,7 @@ Tujuan utama aplikasi:
 - Boxplot kuartil.
 - Violinplot kepadatan distribusi.
 - Heatmap Z-score profil klaster.
+- Analisis deskriptif naratif otomatis per klaster yang merangkum fitur numerik, SITC, dan persebaran geografis.
 - SHAP global importance.
 - SHAP importance per kelas klaster.
 - SHAP beeswarm untuk setiap kelas klaster.
@@ -199,6 +200,7 @@ Dashboard menggunakan sidebar internal untuk memilih lima tampilan. Halaman ini 
 - Bar chart ukuran klaster.
 - Pie chart proporsi klaster.
 - Tabel ukuran, jumlah pelabuhan, jumlah provinsi, dan proporsi klaster.
+- Analisis deskriptif karakteristik klaster: paragraf terpisah untuk setiap klaster yang mencakup karakteristik numerik, kategorikal SITC, geografis, dan identitas utama klaster.
 
 #### b. Profil Klaster
 
@@ -361,6 +363,7 @@ China-Imports-Port-Clustering-App/
 │   ├── config.py
 │   ├── preprocessing.py
 │   ├── modeling.py
+│   ├── narrative.py
 │   └── visualization.py
 └── dataset_input/
     ├── port_imports.csv
@@ -376,10 +379,11 @@ China-Imports-Port-Clustering-App/
 | `pages/1_Beranda.py` | Memberikan konteks penelitian dan navigasi awal tanpa menjalankan komputasi. |
 | `pages/2_Input_Data.py` | Menangani upload, validasi, konfigurasi K, eksekusi pipeline, dan ringkasan hasil. |
 | `pages/3_Dashboard.py` | Menyajikan hasil analisis melalui lima tampilan dan mengatur interaksi visual. |
-| `src/config.py` | Menyimpan konstanta bersama seperti rentang K, K default, dan K optimal agar tidak tersebar. |
+| `src/config.py` | Menyimpan konstanta bersama seperti rentang K, K default, K optimal, ambang analisis naratif, dan deskripsi kode SITC. |
 | `src/__init__.py` | Menandai `src` sebagai package Python sehingga modul dapat diimpor oleh halaman Streamlit. |
 | `src/preprocessing.py` | Mengubah data mentah menjadi dataset siap model dengan validasi yang ketat. |
 | `src/modeling.py` | Menjalankan K-Prototypes, evaluasi, surrogate Random Forest, dan SHAP. |
+| `src/narrative.py` | Menghitung statistik per klaster dan membentuk narasi deskriptif numerik, SITC, dan geografis dari hasil modeling yang tersimpan. |
 | `src/visualization.py` | Memisahkan pembuatan chart dari halaman Streamlit agar kode visualisasi dapat digunakan ulang. |
 | `dataset_input/` | Menyimpan contoh data masukan untuk pengujian lokal. |
 | `.streamlit/config.toml` | Mengatur tema, mode headless, dan menyembunyikan navigasi multipage bawaan Streamlit. |
@@ -551,6 +555,31 @@ _render_data()
 └── preview + download subset klaster
 ```
 
+### 7.9 Narasi Karakteristik Klaster
+
+```text
+generate_all_cluster_narratives(model_result)
+├── analyze_shap_importance()
+│   └── check_shap_validity() → fidelity, recall kelas, jumlah observasi uji
+├── analyze_numeric_profile()      → mean, Z-score, rata-rata tertinggi, SHAP share
+├── analyze_categorical_profile()  → modus, persentase, normalized entropy, SHAP share SITC
+├── analyze_geographic_profile()   → pelabuhan unik per provinsi dan kawasan kepulauan
+└── generate_cluster_narrative()
+    ├── generate_numeric_narrative()
+    ├── generate_categorical_narrative()
+    └── generate_geographic_narrative()
+```
+
+Seluruh input dibaca dari `analysis_result` yang sudah tersimpan di session state.
+Modul ini tidak memanggil `run_preprocessing()`, `run_modeling()`, `train_surrogate()`,
+atau `compute_shap()` sehingga perpindahan tampilan Dashboard tidak memicu ulang
+pipeline. Statistik numerik dan kategorikal memakai dataset final setelah IQR
+capping dalam satuan asli, bukan `X_model` yang sudah distandardisasi. Analisis
+SHAP memakai `shap_by_class` dan `y_test` yang sudah dihitung modeling: untuk
+klaster *k* hanya baris uji dengan label aktual *k* yang dipakai, dengan
+kontribusi dari kelas *k* dan seluruh kolom one-hot SITC dijumlahkan sebagai satu
+kelompok fitur.
+
 ---
 
 ## 8. Alur Preprocessing
@@ -697,6 +726,54 @@ Label ini hanya mengubah teks tampilan. Nama kolom asli pada DataFrame dan prose
 
 Peta menggunakan Plotly `scatter_geo` dengan cakupan Asia. Kategori SITC dipilih satu per satu agar marker tidak saling menumpuk. Caption peta menyertakan daftar arti kode SITC 0–9.
 
+### Aturan analisis naratif dan threshold
+
+Seluruh ambang berikut tersimpan di `src/config.py` agar narasi dan pengujian memakai sumber yang sama.
+
+**Perbandingan numerik (Z-score rata-rata klaster terhadap dataset final):**
+
+| Z-score | Interpretasi narasi |
+|---|---|
+| `Z ≥ 1,0` | Jauh di atas rata-rata keseluruhan |
+| `0,5 ≤ Z < 1,0` | Di atas rata-rata keseluruhan |
+| `-0,5 < Z < 0,5` | Mendekati rata-rata keseluruhan |
+| `-1,0 < Z ≤ -0,5` | Di bawah rata-rata keseluruhan |
+| `Z ≤ -1,0` | Jauh di bawah rata-rata keseluruhan |
+
+Rata-rata tertinggi antar klaster diperiksa terpisah dari Z-score dengan toleransi floating-point. Jika standar deviasi global nol, interpretasi perbandingan dilewati.
+
+**Kategorikal SITC (normalized Shannon entropy):**
+
+| Entropy | Interpretasi |
+|---|---|
+| `0 ≤ H ≤ 0,50` | Terkonsentrasi pada sedikit kategori |
+| `0,50 < H < 0,80` | Moderat; tidak ada kalimat entropy khusus |
+| `0,80 ≤ H ≤ 1,00` | Relatif merata |
+
+Narasi memakai `m` yang sama dengan chart normalized entropy pada Dashboard, yaitu jumlah kategori SITC unik di **seluruh dataset**. Dengan begitu nilai entropy pada narasi dan chart selalu identik, dan klaster dengan dua kategori tidak otomatis bernilai 1,0 apabila dataset memiliki lebih banyak kategori. Jika hanya ada satu kategori (`m = 1`), entropy ditetapkan 0.
+
+**Interpretasi SHAP (model surrogate):**
+
+| Ambang | Nilai | Fungsi |
+|---|---|---|
+| `SURROGATE_FIDELITY_MIN` | `0,80` | Fidelity holdout minimum; di bawahnya semua klaim SHAP dibatalkan |
+| `SURROGATE_CLASS_RECALL_MIN` | `0,70` | Recall kelas minimum per klaster |
+| `SHAP_MIN_TEST_SAMPLES` | `10` | Jumlah observasi uji minimum per klaster |
+| `SHAP_IMPORTANCE_THRESHOLD` | `25%` | Share mean absolute SHAP minimum agar fitur disebut pembeda kuat |
+
+Share dihitung dari lima kelompok fitur: empat fitur numerik dan satu kelompok SITC hasil penjumlahan kontribusi absolut seluruh kolom one-hot. Mean absolute SHAP mengukur kekuatan kontribusi, bukan arah pengaruh.
+
+**Geografis:**
+
+| Ambang | Nilai | Fungsi |
+|---|---|---|
+| `GEO_DOMINANCE_THRESHOLD` | `80%` | Satu provinsi/kawasan dianggap dominan |
+| `GEO_COVERAGE_MIN` | `80%` | Cakupan provinsi minimum sebelum klaim persebaran diperkuat |
+| `NARRATIVE_TOP_PROVINCES` | `3` | Maksimum provinsi yang disebut |
+| `NARRATIVE_TOP_REGIONS` | `3` | Maksimum kawasan kepulauan yang disebut |
+
+Jumlah pelabuhan dan persebaran geografis dihitung dari pelabuhan unik per klaster; satu pelabuhan tidak dihitung berulang meskipun memiliki beberapa kategori SITC. Pemetaan 38 provinsi ke tujuh kawasan kepulauan (Sumatera, Jawa, Kalimantan, Sulawesi, Bali dan Nusa Tenggara, Maluku, Papua) berada di `src/narrative.py`.
+
 ---
 
 ## 11. Output dan Unduhan
@@ -712,6 +789,7 @@ Peta menggunakan Plotly `scatter_geo` dengan cakupan Asia. Kategori SITC dipilih
 - Classification report.
 - Confusion matrix.
 - Hasil SHAP per kelas.
+- Narasi deskriptif karakteristik klaster (numerik, SITC, geografis, dan identitas utama).
 - Dataset per tahap preprocessing.
 
 ### Unduhan CSV
@@ -796,6 +874,11 @@ Konfigurasi K berada di `src/config.py`. Konstanta fitur dan skema berada di `sr
 - Tidak ada database, autentikasi, atau penyimpanan permanen.
 - Model surrogate adalah model pendekatan, bukan model klaster utama.
 - SHAP menjelaskan perilaku surrogate, bukan hubungan kausal.
+- Narasi karakteristik klaster dibentuk dari dataset final setelah IQR capping dalam satuan asli, bukan dari `X_model` yang sudah distandardisasi.
+- Klaim SHAP pada narasi hanya muncul jika fidelity holdout ≥ 0,80, recall kelas ≥ 0,70, dan tersedia minimal 10 observasi uji untuk klaster tersebut. Jika salah satu syarat gagal, statistik numerik, SITC, dan geografis tetap ditampilkan tanpa klaim SHAP.
+- Mean absolute SHAP mengukur kekuatan kontribusi fitur, bukan arah pengaruh; narasi tidak menyimpulkan hubungan kausal atau menyatakan bahwa suatu nilai fitur meningkatkan peluang masuk klaster.
+- Persebaran geografis dihitung dari pelabuhan unik per klaster. Jika cakupan provinsi di bawah 80%, narasi menyertakan keterangan cakupan dan tidak menghasilkan klaim dominasi yang kuat.
+- Pemetaan provinsi ke kawasan kepulauan bersifat tetap untuk 38 provinsi; provinsi baru atau nama di luar daftar tidak dipetakan dan tidak ditebak.
 - Kontrol skala log pada tab Profil Klaster saat ini dinonaktifkan dan kodenya dipertahankan sebagai komentar.
 - Peta menggunakan `scatter_geo`, bukan tile Carto.
 - Tampilan Data menampilkan nama kolom asli karena berfungsi sebagai ekspor dataset, bukan label presentasi.
