@@ -106,6 +106,8 @@ Tujuan utama aplikasi:
 - Modus fitur kategorikal SITC per klaster.
 - Distribusi proporsi SITC per klaster.
 - Tingkat keragaman kategori SITC per klaster (normalized entropy).
+- Donut chart distribusi kategori SITC pada analisis deskriptif setiap klaster.
+- Peta statis persebaran pelabuhan per klaster berdasarkan kategori SITC yang dipilih.
 - Perbandingan rata-rata fitur numerik.
 - Boxplot kuartil.
 - Violinplot kepadatan distribusi.
@@ -201,6 +203,10 @@ Dashboard menggunakan sidebar internal untuk memilih lima tampilan. Halaman ini 
 - Pie chart proporsi klaster.
 - Tabel ukuran, jumlah pelabuhan, jumlah provinsi, dan proporsi klaster.
 - Analisis deskriptif karakteristik klaster: paragraf terpisah untuk setiap klaster yang mencakup karakteristik numerik, kategorikal SITC, geografis, dan identitas utama klaster.
+- Setiap kartu narasi memakai aksen garis vertikal di sisi kiri yang warnanya diambil dari `cluster_color_map()`, sehingga konsisten dengan bar chart, pie chart, dan scatter plot klaster.
+- Bagian B setiap kartu menampilkan donut chart distribusi kategori SITC klaster, dengan warna kategori yang konsisten antar-klaster.
+- Bagian C setiap kartu menampilkan peta statis persebaran pelabuhan; kategori SITC dipilih melalui radio button di sisi kanan peta dan hanya berisi kategori yang dimiliki klaster tersebut.
+- Geographic extent peta memakai batas minimum 350 km dan tetap sama untuk semua kategori SITC dalam klaster yang sama, sehingga pergantian kategori hanya mengubah marker.
 
 #### b. Profil Klaster
 
@@ -384,7 +390,7 @@ China-Imports-Port-Clustering-App/
 | `src/preprocessing.py` | Mengubah data mentah menjadi dataset siap model dengan validasi yang ketat. |
 | `src/modeling.py` | Menjalankan K-Prototypes, evaluasi, surrogate Random Forest, dan SHAP. |
 | `src/narrative.py` | Menghitung statistik per klaster dan membentuk narasi deskriptif numerik, SITC, dan geografis dari hasil modeling yang tersimpan. |
-| `src/visualization.py` | Memisahkan pembuatan chart dari halaman Streamlit agar kode visualisasi dapat digunakan ulang. |
+| `src/visualization.py` | Memisahkan pembuatan chart dari halaman Streamlit agar kode visualisasi dapat digunakan ulang, termasuk donut SITC, peta statis PNG, dan pemetaan warna kategori SITC. |
 | `dataset_input/` | Menyimpan contoh data masukan untuk pengujian lokal. |
 | `.streamlit/config.toml` | Mengatur tema, mode headless, dan menyembunyikan navigasi multipage bawaan Streamlit. |
 | `requirements.txt` | Mencatat dependensi Python yang dibutuhkan. |
@@ -580,6 +586,43 @@ klaster *k* hanya baris uji dengan label aktual *k* yang dipakai, dengan
 kontribusi dari kelas *k* dan seluruh kolom one-hot SITC dijumlahkan sebagai satu
 kelompok fitur.
 
+Integrasi visualisasi di Dashboard Ringkasan:
+
+```text
+_render_cluster_narratives()
+├── _render_sitc_donut_section()          → donut + panel legenda responsif
+│   ├── sitc_distribution_donut()         → donut komposisi SITC per klaster
+│   └── _sitc_legend_html()               → legenda kanan; turun ke bawah di layar sempit
+└── _render_cluster_geographic_map()      → hanya saat kartu klaster dibuka
+    ├── select_cluster_ports()            → seluruh pelabuhan unik klaster
+    ├── compute_map_extent()              → extent adaptif minimum 350 km
+    ├── select_map_rows()                 → filter Cluster × SITC, buang marker duplikat
+    ├── st.radio(key="narrative_map_sitc_<k>") → default kategori modus klaster
+    └── _map_png_cached() → static_geo_map_png() → st.image()
+```
+
+Kartu klaster memakai expander stateful (`on_change="rerun"`) sehingga isi hanya
+diproses saat kartu dibuka. Donut memakai dua kolom Streamlit: chart di kiri dan
+panel legenda HTML di kanan. Di bawah breakpoint layar sempit, Streamlit
+menumpuk kolom sehingga legenda berpindah ke bawah chart; Plotly tidak lagi
+memakai legenda internal dengan margin kanan tetap. PNG peta dibuat secara lazy:
+tidak ada gambar yang dibuat saat Dashboard pertama kali dimuat, dan seluruh
+kombinasi Cluster × SITC tidak pernah dibuat sekaligus. Cache `st.cache_data` memakai baris hasil filter
+(signature dataset), ID klaster, kategori SITC, warna identitas klaster,
+geographic extent, serta lebar/tinggi/scale gambar sebagai key. Mengubah radio
+button hanya memicu rerun UI; preprocessing, K-Prototypes, surrogate, dan SHAP
+tidak dijalankan ulang.
+
+`compute_map_extent()` menghitung bounding box dari **seluruh pelabuhan unik
+klaster**, bukan hanya SITC terpilih. Pusat peta adalah titik tengah bounding
+box; setiap sumbu minimal 350 km (`MAP_MIN_EXTENT_KM` di `src/config.py`).
+Persebaran yang lebih luas mendapat padding 12% (`MAP_EXTENT_PADDING`).
+Konversi kilometer ke derajat longitude memakai kosinus latitude pusat, dan
+kondisi koordinat identik tetap memperoleh rentang minimum yang valid. Figure
+memakai `fitbounds=False` dengan `center`, `lonaxis_range`, dan `lataxis_range`
+eksplisit, sehingga zoom PNG terbatas dan tidak berubah saat kategori SITC
+diganti.
+
 ---
 
 ## 8. Alur Preprocessing
@@ -689,6 +732,7 @@ Modul: `src/visualization.py`
 - `cluster_violinplots()` — violinplot kepadatan.
 - `sitc_stacked_bar()` — komposisi SITC.
 - `sitc_entropy_bars()` — normalized entropy kategori SITC per klaster.
+- `sitc_distribution_donut()` — donut komposisi kategori SITC per klaster; legenda dirender Dashboard sebagai panel responsif di kanan chart.
 - `cluster_z_heatmap()` — Z-score profil klaster.
 - `elbow_line()` — Elbow curve.
 - `global_shap_bar()` — global SHAP importance.
@@ -696,6 +740,10 @@ Modul: `src/visualization.py`
 - `shap_beeswarm_figure()` — beeswarm SHAP.
 - `confusion_heatmap()` — confusion matrix surrogate.
 - `geo_scatter()` — peta sebaran pelabuhan.
+- `select_map_rows()` — filter baris peta Cluster × SITC tanpa marker duplikat.
+- `select_cluster_ports()` — seluruh pelabuhan unik satu klaster untuk dasar extent.
+- `compute_map_extent()` — extent adaptif minimum 350 km dengan padding 12%.
+- `static_geo_map_png()` — ekspor peta pelabuhan satu klaster menjadi PNG statis.
 - `cluster_scatter()` — scatter nilai aktual.
 - `silhouette_plot()` — silhouette per observasi.
 - `kprototypes_silhouette_samples()` — nilai silhouette per observasi.
@@ -815,6 +863,7 @@ Semua CSV menggunakan encoding `utf-8-sig` agar kompatibel dengan Excel.
 - Python 3.10 atau lebih baru.
 - Koneksi internet tidak diperlukan untuk proses modeling, tetapi halaman menggunakan font eksternal.
 - File input tersedia.
+- Untuk peta statis pada analisis deskriptif: `kaleido` (tercantum di `requirements.txt`) dan Chrome/Chromium.
 
 ### Instalasi
 
@@ -823,7 +872,12 @@ python -m venv .venv
 source .venv/bin/activate        # Linux/macOS
 # .venv\Scripts\activate         # Windows
 pip install -r requirements.txt
+plotly_get_chrome -y             # sekali saja: unduh Chrome untuk ekspor PNG Kaleido
 ```
+
+`plotly_get_chrome` hanya diperlukan bila sistem belum memiliki Chrome/Chromium.
+Jika browser tersedia, Kaleido memakainya langsung. Tanpa browser, ekspor PNG
+gagal dan bagian peta menampilkan pesan; narasi dan visualisasi lain tetap berjalan.
 
 ### Menjalankan
 
@@ -862,8 +916,10 @@ Aplikasi akan terbuka pada browser dan dimulai dari halaman Beranda.
 | IQR multiplier | 3 |
 | Surrogate test size | 20% |
 | Random Forest estimators | 500 |
+| Minimum map extent | 350 km (`MAP_MIN_EXTENT_KM`) |
+| Map extent padding | 12% (`MAP_EXTENT_PADDING`) |
 
-Konfigurasi K berada di `src/config.py`. Konstanta fitur dan skema berada di `src/preprocessing.py`.
+Konfigurasi K berada di `src/config.py`. Konstanta fitur dan skema berada di `src/preprocessing.py`. Konstanta extent peta statis juga berada di `src/config.py` agar dapat disesuaikan setelah pemeriksaan visual.
 
 ---
 
@@ -879,6 +935,11 @@ Konfigurasi K berada di `src/config.py`. Konstanta fitur dan skema berada di `sr
 - Mean absolute SHAP mengukur kekuatan kontribusi fitur, bukan arah pengaruh; narasi tidak menyimpulkan hubungan kausal atau menyatakan bahwa suatu nilai fitur meningkatkan peluang masuk klaster.
 - Persebaran geografis dihitung dari pelabuhan unik per klaster. Jika cakupan provinsi di bawah 80%, narasi menyertakan keterangan cakupan dan tidak menghasilkan klaim dominasi yang kuat.
 - Pemetaan provinsi ke kawasan kepulauan bersifat tetap untuk 38 provinsi; provinsi baru atau nama di luar daftar tidak dipetakan dan tidak ditebak.
+- Peta pada analisis deskriptif (Ringkasan) adalah **PNG statis**: tidak dapat di-zoom, di-pan, di-hover, dan tanpa toolbar Plotly. Halaman **Peta** Dashboard tetap memakai Plotly interaktif seperti sebelumnya.
+- Ekspor PNG memerlukan Kaleido dan Chrome/Chromium. Jika tidak tersedia, bagian peta menampilkan pesan dan narasi tetap berjalan.
+- PNG peta dibuat lazy saat kartu klaster dibuka dan disimpan di cache berdasarkan data hasil filter, ID klaster, kategori SITC, warna identitas klaster, geographic extent, serta resolusi gambar.
+- Geographic extent peta dihitung dari seluruh pelabuhan unik klaster dengan lebar/tinggi minimum 350 km dan padding 12% untuk persebaran yang lebih luas; pusat peta adalah titik tengah bounding box. Karena extent tidak bergantung pada SITC terpilih, mengganti kategori tidak mengubah zoom maupun posisi peta.
+- Donut SITC memakai palet kualitatif terpisah dari `cluster_color_map`; warna klaster tetap dipakai untuk aksen kartu dan marker peta.
 - Kontrol skala log pada tab Profil Klaster saat ini dinonaktifkan dan kodenya dipertahankan sebagai komentar.
 - Peta menggunakan `scatter_geo`, bukan tile Carto.
 - Tampilan Data menampilkan nama kolom asli karena berfungsi sebagai ekspor dataset, bukan label presentasi.

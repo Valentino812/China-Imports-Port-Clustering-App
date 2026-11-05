@@ -7,6 +7,7 @@ actual analysis output.
 
 from __future__ import annotations
 
+import math
 from typing import Callable
 
 import numpy as np
@@ -15,6 +16,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.metrics import pairwise_distances, silhouette_samples
+
+from src.config import MAP_EXTENT_PADDING, MAP_MIN_EXTENT_KM, SITC_LABELS
 
 # Palet kualitatif kontras tinggi dan colorblind-safe (Okabe-Ito). Dipakai untuk
 # kategori diskret agar setiap kelompok mendapat warna yang jelas berbeda.
@@ -204,6 +207,130 @@ def cluster_pie(cluster_structure: pd.DataFrame) -> go.Figure:
     )
     fig.update_traces(textinfo="percent+label")
     return _style(fig, title="Proporsi Klaster")
+
+
+# ---------------------------------------------------------------------------
+# SITC distribution donut
+# ---------------------------------------------------------------------------
+# A fixed qualitative palette for SITC categories. It is intentionally
+# different from ``cluster_color_map`` because cluster colours must keep their
+# meaning across the Dashboard. Mapping all ten SITC codes up front guarantees
+# that the same category always receives the same colour, even when a cluster
+# only contains a subset of the categories.
+SITC_COLOR_SEQUENCE = px.colors.qualitative.Set3
+SITC_COLOR_BY_CODE = {
+    code: SITC_COLOR_SEQUENCE[index % len(SITC_COLOR_SEQUENCE)]
+    for index, code in enumerate(sorted(SITC_LABELS, key=int))
+}
+
+
+def _sitc_sort_key(code: object) -> tuple[int, str]:
+    text = str(code)
+    return (0, text.zfill(2)) if text.isdigit() else (1, text)
+
+
+def sitc_color_map(codes) -> dict[str, str]:
+    """Return one stable colour per SITC code.
+
+    ``cluster_color_map`` is reserved for cluster identity; SITC segments use
+    this separate qualitative mapping so the two meanings never collide.
+    """
+    mapping: dict[str, str] = {}
+    unknown: list[str] = []
+    for code in sorted({str(code) for code in codes}, key=_sitc_sort_key):
+        color = SITC_COLOR_BY_CODE.get(code)
+        if color is None:
+            unknown.append(code)
+        else:
+            mapping[code] = color
+    for offset, code in enumerate(unknown):
+        mapping[code] = SITC_COLOR_SEQUENCE[
+            (len(SITC_COLOR_BY_CODE) + offset) % len(SITC_COLOR_SEQUENCE)
+        ]
+    return mapping
+
+
+def sitc_distribution_donut(
+    data: pd.DataFrame,
+    cluster: int,
+    title: str | None = None,
+) -> go.Figure:
+    """Donut chart of the SITC composition inside one cluster.
+
+    Values are observation counts (port x SITC), matching the percentages used
+    by the narrative. All categories present in the cluster are included.
+    The legend is rendered by the Dashboard as a responsive panel next to the
+    chart, so the Plotly canvas keeps its full width on narrow screens.
+    """
+    if (
+        data is None
+        or data.empty
+        or "Cluster" not in data.columns
+        or "sitc" not in data.columns
+    ):
+        return _empty_figure("Tidak ada kategori SITC untuk ditampilkan.")
+
+    subset = data.loc[data["Cluster"] == cluster, "sitc"].dropna().astype(str)
+    if subset.empty:
+        return _empty_figure("Tidak ada kategori SITC untuk klaster ini.")
+
+    counts = subset.value_counts()
+    codes = sorted(counts.index, key=_sitc_sort_key)
+    values = [int(counts[code]) for code in codes]
+    total = sum(values)
+    labels = [
+        f"SITC {code} — {SITC_LABELS.get(code, 'kelompok komoditas SITC')}"
+        for code in codes
+    ]
+    colors = sitc_color_map(codes)
+    # Show a category+percentage label only when the slice is large enough to
+    # avoid overlapping text; every category stays identifiable via legend and
+    # hover.
+    text: list[str] = []
+    for code, value in zip(codes, values):
+        share = value / total
+        if share >= 0.12:
+            text.append(f"SITC {code}<br>{share * 100:.1f}%")
+        elif share >= 0.05:
+            text.append(f"{share * 100:.1f}%")
+        else:
+            text.append("")
+
+    fig = go.Figure(
+        go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.45,
+            sort=False,
+            direction="clockwise",
+            marker=dict(
+                colors=[colors[code] for code in codes],
+                line=dict(color="#FFFFFF", width=1),
+            ),
+            text=text,
+            textinfo="text",
+            textposition="inside",
+            insidetextorientation="radial",
+            textfont=dict(size=11),
+            hovertemplate=(
+                "<b>%{label}</b><br>%{value:,} observasi<br>"
+                "%{percent}<extra></extra>"
+            ),
+        )
+    )
+    fig = _style(
+        fig,
+        height=380,
+        title=title or f"Distribusi Kategori SITC — Cluster {cluster}",
+    )
+    # The legend is rendered as a responsive Streamlit panel next to the chart
+    # (see the Dashboard), so the Plotly canvas keeps the full width on narrow
+    # screens instead of squeezing the donut against a fixed right margin.
+    fig.update_layout(
+        showlegend=False,
+        margin=dict(l=10, r=10, t=52, b=10),
+    )
+    return fig
 
 
 def _format_number(value: object, number_format: str) -> str:
@@ -843,6 +970,211 @@ def geo_scatter(
     fig.update_geos(fitbounds="locations", visible=True, showcountries=True, countrycolor="#D0D0D0")
     fig.update_layout(height=560, margin=dict(l=0, r=0, t=50, b=0), legend_title_text=legend_title)
     return fig
+
+
+def _valid_port_rows(data: pd.DataFrame, mask: pd.Series) -> pd.DataFrame:
+    """Keep rows matching ``mask`` with usable coordinates and unique markers."""
+    columns = [
+        column
+        for column in ("port", "Provinsi", "Cluster", "sitc", "latitude", "longitude")
+        if column in data.columns
+    ]
+    subset = data.loc[mask, columns].copy()
+    subset["latitude"] = pd.to_numeric(subset["latitude"], errors="coerce")
+    subset["longitude"] = pd.to_numeric(subset["longitude"], errors="coerce")
+    subset = subset.dropna(subset=["latitude", "longitude"])
+    subset = subset.drop_duplicates(subset=["port", "latitude", "longitude"])
+    return subset.reset_index(drop=True)
+
+
+def select_map_rows(
+    data: pd.DataFrame, cluster: int, sitc: str
+) -> pd.DataFrame:
+    """Filter Cluster x SITC rows and drop duplicate port/coordinate markers.
+
+    Returns an empty frame when coordinates are unavailable, so callers can
+    show an informative message instead of drawing a fabricated map.
+    """
+    if data is None or data.empty:
+        return pd.DataFrame()
+    required = {"Cluster", "sitc", "port", "latitude", "longitude"}
+    if not required.issubset(data.columns):
+        return pd.DataFrame()
+
+    mask = (data["Cluster"] == cluster) & (
+        data["sitc"].astype(str) == str(sitc)
+    )
+    return _valid_port_rows(data, mask)
+
+
+def select_cluster_ports(data: pd.DataFrame, cluster: int) -> pd.DataFrame:
+    """Return every unique port of ``cluster`` with valid coordinates.
+
+    The map extent is derived from this frame, not from the selected SITC, so
+    switching categories never changes zoom or centre.
+    """
+    if data is None or data.empty:
+        return pd.DataFrame()
+    required = {"Cluster", "port", "latitude", "longitude"}
+    if not required.issubset(data.columns):
+        return pd.DataFrame()
+
+    mask = data["Cluster"] == cluster
+    return _valid_port_rows(data, mask)
+
+
+# Mean kilometres per degree of latitude (WGS84 approximation).
+_KM_PER_DEGREE_LATITUDE = 111.32
+
+
+def _bounded_axis_range(
+    center: float, span: float, lower: float, upper: float
+) -> list[float]:
+    """Centre a span on ``center`` and shift it inside the valid axis bounds."""
+    low = center - span / 2.0
+    high = center + span / 2.0
+    if low < lower:
+        high += lower - low
+        low = lower
+    elif high > upper:
+        low -= high - upper
+        high = upper
+    return [float(low), float(high)]
+
+
+def compute_map_extent(
+    rows: pd.DataFrame,
+    *,
+    min_km: float | None = None,
+    padding: float | None = None,
+) -> dict[str, object] | None:
+    """Adaptive geographic extent for a static cluster map.
+
+    The extent is centred on the bounding-box midpoint of all unique ports in
+    the cluster. Each axis is at least ``min_km`` wide; wider distributions get
+    ``padding`` (10-15%) added. Longitude degrees are converted using the
+    cosine of the centre latitude, so 350 km covers the same ground distance
+    at any latitude. Identical coordinates fall back to the minimum extent.
+    """
+    if rows is None or rows.empty:
+        return None
+
+    min_km = MAP_MIN_EXTENT_KM if min_km is None else float(min_km)
+    padding = MAP_EXTENT_PADDING if padding is None else float(padding)
+
+    coords = pd.DataFrame(
+        {
+            "latitude": pd.to_numeric(rows["latitude"], errors="coerce"),
+            "longitude": pd.to_numeric(rows["longitude"], errors="coerce"),
+        }
+    ).dropna()
+    if coords.empty:
+        return None
+
+    lat_min = float(coords["latitude"].min())
+    lat_max = float(coords["latitude"].max())
+    lon_min = float(coords["longitude"].min())
+    lon_max = float(coords["longitude"].max())
+
+    center_lat = (lat_min + lat_max) / 2.0
+    center_lon = (lon_min + lon_max) / 2.0
+
+    cos_latitude = max(abs(math.cos(math.radians(center_lat))), 0.01)
+    min_lat_span = min_km / _KM_PER_DEGREE_LATITUDE
+    min_lon_span = min_km / (_KM_PER_DEGREE_LATITUDE * cos_latitude)
+
+    lat_span = max((lat_max - lat_min) * (1.0 + padding), min_lat_span)
+    lon_span = max((lon_max - lon_min) * (1.0 + padding), min_lon_span)
+
+    lat_span = min(lat_span, 170.0)
+    lon_span = min(lon_span, 350.0)
+
+    lat_range = _bounded_axis_range(center_lat, lat_span, -89.9, 89.9)
+    lon_range = _bounded_axis_range(center_lon, lon_span, -180.0, 180.0)
+
+    return {
+        "center_lat": center_lat,
+        "center_lon": center_lon,
+        "lat_range": lat_range,
+        "lon_range": lon_range,
+        "lat_span_deg": lat_range[1] - lat_range[0],
+        "lon_span_deg": lon_range[1] - lon_range[0],
+        "min_km": min_km,
+        "padding": padding,
+    }
+
+
+def static_geo_map_png(
+    rows: pd.DataFrame,
+    *,
+    marker_color: str,
+    title: str,
+    extent: dict[str, object] | None = None,
+    width: int = 900,
+    height: int = 520,
+    scale: int = 2,
+) -> bytes:
+    """Render a single-cluster port map as a static PNG.
+
+    The figure is built with :func:`geo_scatter` so the map scope, projection,
+    marker style and geographic styling stay identical to the interactive Peta
+    page. The marker colour is forced to the cluster identity colour because a
+    filtered map only contains one cluster and ``geo_scatter`` would otherwise
+    assign the first palette colour.
+
+    When ``extent`` is provided (see :func:`compute_map_extent`), the map range
+    and centre are set explicitly with ``fitbounds=False`` so the static export
+    cannot zoom closer than the configured minimum.
+
+    Requires ``kaleido`` and a Chrome/Chromium installation (see README).
+    """
+    if rows is None or rows.empty:
+        raise ValueError("Tidak ada koordinat pelabuhan yang valid untuk dipetakan.")
+
+    fig = geo_scatter(
+        rows,
+        "latitude",
+        "longitude",
+        hover_name="port",
+        title=title,
+        color_col="Cluster",
+    )
+    fig.update_traces(
+        marker=dict(
+            color=marker_color,
+            size=11,
+            opacity=0.95,
+            line=dict(width=1, color="white"),
+        )
+    )
+    if extent is not None:
+        fig.update_geos(
+            fitbounds=False,
+            center=dict(
+                lat=float(extent["center_lat"]),
+                lon=float(extent["center_lon"]),
+            ),
+            lonaxis_range=[float(value) for value in extent["lon_range"]],
+            lataxis_range=[float(value) for value in extent["lat_range"]],
+            visible=True,
+            showcountries=True,
+            countrycolor="#D0D0D0",
+        )
+    else:
+        fig.update_geos(
+            fitbounds="locations",
+            visible=True,
+            showcountries=True,
+            countrycolor="#D0D0D0",
+        )
+    fig.update_layout(
+        showlegend=False,
+        width=width,
+        height=height,
+        margin=dict(l=0, r=0, t=48, b=0),
+        title=dict(font=dict(size=14)),
+    )
+    return fig.to_image(format="png", width=width, height=height, scale=scale)
 
 
 def _stratified_sample(

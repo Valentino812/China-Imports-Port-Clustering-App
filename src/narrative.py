@@ -812,6 +812,9 @@ def generate_categorical_narrative(
                 "Distribusi kategori SITC tidak tersedia untuk klaster ini."
             ],
             "other_distribution": [],
+            "modes": [],
+            "mode_percentage": 0.0,
+            "categories": [],
             "shap_important": False,
         }
 
@@ -875,6 +878,19 @@ def generate_categorical_narrative(
     return {
         "paragraphs": paragraphs,
         "other_distribution": analysis["others"],
+        "modes": list(analysis["modes"]),
+        "mode_percentage": float(analysis["mode_percentage"]),
+        "categories": [
+            {
+                "code": str(code),
+                "description": _sitc_description(code),
+                "percentage": float(percentage),
+                "percentage_label": _format_percentage(float(percentage)),
+            }
+            for code, percentage in sorted(
+                analysis["percentages"].items(), key=lambda row: _sitc_sort_key(row[0])
+            )
+        ],
         "shap_important": bool(analysis.get("is_shap_important")),
     }
 

@@ -48,6 +48,12 @@ GEO_DOMINANCE_THRESHOLD = 0.80
 CLUSTER_MAX_RTOL = 1e-9
 SHARE_FULL_TOLERANCE = 1e-9
 
+# Static port-map extent. The map keeps its auto-fit spirit but never zooms in
+# closer than this minimum geographical window (kilometres). Adjust after a
+# visual check without touching the plotting code.
+MAP_MIN_EXTENT_KM = 350.0
+MAP_EXTENT_PADDING = 0.12
+
 # Display limits for the narrative (not analytical thresholds).
 NARRATIVE_TOP_PROVINCES = 3
 NARRATIVE_TOP_REGIONS = 3

@@ -8,6 +8,7 @@ sidebar render once and stay consistent across view changes.
 from __future__ import annotations
 
 import sys
+from html import escape
 from pathlib import Path
 from typing import Any, Callable
 
@@ -37,8 +38,14 @@ from src.visualization import (
     shap_beeswarm_figure,
     shap_cluster_heatmap,
     silhouette_plot,
+    sitc_color_map,
+    sitc_distribution_donut,
     sitc_entropy_bars,
     sitc_stacked_bar,
+    compute_map_extent,
+    select_cluster_ports,
+    select_map_rows,
+    static_geo_map_png,
 )
 
 VIEWS = ["Ringkasan", "Profil Klaster", "Evaluasi", "Peta", "Data"]
@@ -367,9 +374,201 @@ def _narrative_accent_css(clusters: list[int]) -> str:
     box-shadow: 0 1px 4px rgba(79, 107, 237, 0.05);
     overflow: hidden;
 }}
+/* Legenda donut SITC: panel kanan yang otomatis turun ke bawah pada layar sempit */
+.sitc-legend {{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 2px 0 0 0;
+}}
+.sitc-legend-title {{
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #343B50;
+    margin-bottom: 2px;
+}}
+.sitc-legend-item {{
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: #4B5563;
+}}
+.sitc-legend-dot {{
+    flex: 0 0 10px;
+    width: 10px;
+    height: 10px;
+    margin-top: 3px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(26, 28, 46, 0.12);
+}}
+.sitc-legend-text {{
+    flex: 1 1 auto;
+    min-width: 0;
+}}
+.sitc-legend-code {{
+    font-weight: 600;
+    color: #1A1C2E;
+}}
+.sitc-legend-pct {{
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-weight: 500;
+    color: #6B7280;
+    font-variant-numeric: tabular-nums;
+}}
 {rules}
 </style>
 """
+
+
+def _sitc_legend_html(categories: list[dict], colors: dict[str, str]) -> str:
+    """Responsive HTML legend for the SITC donut (colour, code, description, %)."""
+    rows = []
+    for row in categories:
+        code = str(row["code"])
+        color = colors.get(code, "#C9CED9")
+        rows.append(
+            "<div class='sitc-legend-item'>"
+            f"<span class='sitc-legend-dot' style='background:{color}'></span>"
+            "<span class='sitc-legend-text'>"
+            f"<span class='sitc-legend-code'>SITC {escape(code)}</span> — "
+            f"{escape(row.get('description', ''))}"
+            "</span>"
+            "<span class='sitc-legend-pct'>"
+            f"{escape(row.get('percentage_label', ''))}"
+            "</span>"
+            "</div>"
+        )
+    return (
+        "<div class='sitc-legend'>"
+        "<div class='sitc-legend-title'>Kategori SITC</div>"
+        + "".join(rows)
+        + "</div>"
+    )
+
+
+def _render_sitc_donut_section(
+    clustered: pd.DataFrame, narrative: dict
+) -> None:
+    """Donut on the left and a responsive legend panel on the right.
+
+    ``st.columns`` stacks vertically below Streamlit's mobile breakpoint, so the
+    description list moves under the chart instead of squeezing it.
+    """
+    cluster = narrative["cluster"]
+    categories = narrative["categorical"].get("categories") or []
+    if not categories:
+        st.plotly_chart(
+            sitc_distribution_donut(clustered, cluster), width="stretch"
+        )
+        return
+
+    colors = sitc_color_map([row["code"] for row in categories])
+    chart_col, legend_col = st.columns([1.5, 1], vertical_alignment="top")
+    with chart_col:
+        st.plotly_chart(
+            sitc_distribution_donut(clustered, cluster), width="stretch"
+        )
+    with legend_col:
+        st.markdown(
+            _sitc_legend_html(categories, colors), unsafe_allow_html=True
+        )
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def _map_png_cached(
+    rows: pd.DataFrame,
+    cluster: int,
+    sitc: str,
+    marker_color: str,
+    width: int,
+    height: int,
+    scale: int,
+    extent: dict,
+) -> bytes:
+    return static_geo_map_png(
+        rows,
+        marker_color=marker_color,
+        title=f"Sebaran Pelabuhan Cluster {cluster} — SITC {sitc}",
+        extent=extent,
+        width=width,
+        height=height,
+        scale=scale,
+    )
+
+
+def _render_cluster_geographic_map(clustered: pd.DataFrame, narrative: dict) -> None:
+    """Render the SITC selector and the static port map for one cluster."""
+    cluster = narrative["cluster"]
+    categorical = narrative["categorical"]
+    categories = categorical.get("categories") or []
+    if not categories:
+        st.info(
+            "Peta persebaran tidak dapat ditampilkan karena kategori SITC klaster "
+            "ini tidak tersedia."
+        )
+        return
+
+    codes = [row["code"] for row in categories]
+    descriptions = {row["code"]: row["description"] for row in categories}
+    modes = categorical.get("modes") or []
+    default_code = modes[0] if modes and modes[0] in codes else codes[0]
+    state_key = f"narrative_map_sitc_{cluster}"
+    if state_key in st.session_state and st.session_state[state_key] not in codes:
+        # Drop a stale selection after the cluster composition changes; the
+        # default mode below then applies without writing widget state first.
+        del st.session_state[state_key]
+
+    map_col, control_col = st.columns([3, 1], vertical_alignment="top")
+    with control_col:
+        selected = st.radio(
+            "Kategori SITC",
+            options=codes,
+            index=codes.index(default_code),
+            format_func=lambda code: f"SITC {code} — {descriptions.get(code, '')}",
+            key=state_key,
+        )
+
+    with map_col:
+        cluster_ports = select_cluster_ports(clustered, cluster)
+        extent = compute_map_extent(cluster_ports)
+        if extent is None:
+            st.info(
+                "Tidak ada koordinat pelabuhan yang valid untuk klaster ini."
+            )
+            return
+
+        rows = select_map_rows(clustered, cluster, selected)
+        if rows.empty:
+            st.info(
+                "Tidak ada koordinat pelabuhan yang valid untuk kategori SITC ini."
+            )
+            return
+
+        marker_color = cluster_color_map(clustered["Cluster"])[f"Cluster {cluster}"]
+        try:
+            png = _map_png_cached(
+                rows,
+                cluster,
+                str(selected),
+                marker_color,
+                900,
+                520,
+                2,
+                extent,
+            )
+        except Exception:  # noqa: BLE001 - export depends on Kaleido/Chrome
+            st.info(
+                "Peta statis tidak dapat dibuat pada lingkungan ini. Pastikan "
+                "Kaleido dan Chrome/Chromium tersedia untuk ekspor PNG."
+            )
+            return
+        st.image(png, width="stretch")
 
 
 def _render_cluster_narratives(result: dict) -> None:
@@ -389,6 +588,8 @@ def _render_cluster_narratives(result: dict) -> None:
         )
         return
 
+    clustered = result["modeling"]["clustered"]
+
     st.markdown(
         _narrative_accent_css([item["cluster"] for item in narratives]),
         unsafe_allow_html=True,
@@ -399,17 +600,20 @@ def _render_cluster_narratives(result: dict) -> None:
             f"Cluster {narrative['cluster']}: "
             f"Terdiri atas {narrative['port_count']:,} pelabuhan unik"
         )
-        with st.expander(
+        expander = st.expander(
             title,
             expanded=False,
             key=f"narrative_cluster_{narrative['cluster']}",
-        ):
+            on_change="rerun",
+        )
+        with expander:
             st.markdown("**A. Karakteristik Numerik**")
             for item in narrative["numeric"]:
                 st.markdown(f"**{item['label']}**")
                 st.write(item["paragraph"])
 
             st.markdown("**B. Karakteristik Kategorikal**")
+            _render_sitc_donut_section(clustered, narrative)
             for paragraph in narrative["categorical"]["paragraphs"]:
                 st.write(paragraph)
             others = narrative["categorical"]["other_distribution"]
@@ -426,6 +630,10 @@ def _render_cluster_narratives(result: dict) -> None:
             st.markdown("**C. Karakteristik Geografis**")
             for paragraph in narrative["geographic"]["paragraphs"]:
                 st.write(paragraph)
+
+            # PNG export is lazy: only build the map for cards that are open.
+            if expander.open:
+                _render_cluster_geographic_map(clustered, narrative)
 
             if narrative["summary"]:
                 st.markdown("**D. Identitas Utama Klaster**")
