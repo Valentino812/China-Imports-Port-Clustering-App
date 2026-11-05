@@ -316,6 +316,29 @@ Sumber resmi provinsi dan koordinat pelabuhan.
 
 Pipeline menolak data jika terdapat pelabuhan duplikat, nilai kosong, atau koordinat di luar rentang.
 
+### 5.5 Template dan Data Referensi
+
+Untuk pengguna yang belum memiliki berkas input, setiap komponen upload pada
+halaman **Input Data** menyediakan tombol unduh berikon di bawah area upload.
+Berkas dibentuk saat runtime dari folder `dataset_input/` (di-cache dengan
+`st.cache_data`), sehingga isinya selalu mengikuti dataset yang dipakai aplikasi.
+
+| Berkas | Label di halaman | Isi unduhan |
+|---|---|---|
+| `port_imports.csv` | Unduh Template | Header + 5 baris contoh dengan pelabuhan berbeda (format `hs_code` dan `usd_value` asli) |
+| `provinces_data.csv` | Unduh Data Referensi | Data referensi lengkap 38 provinsi |
+| `HS2022_to_SITC_Conversion.xlsx` | Unduh Tabel Konversi | Berkas konversi asli utuh (lembar HS22–SITC4 dan korelasi) |
+| `port_geolocation.csv` | Unduh Data Referensi | Data referensi lengkap 197 pelabuhan |
+
+Catatan:
+
+- `port_imports.csv` sengaja diringkas menjadi sampel karena berkas aslinya ±12 MB.
+- Tidak ada pemetaan HS–SITC fiktif; berkas konversi yang diunduh adalah berkas asli.
+- Bila `dataset_input/` tidak tersedia (mis. deployment tanpa data), tombol tetap
+  berfungsi dan mengunduh header kolom wajib saja sebagai kerangka kosong.
+- Tombol unduh bersifat independen, tidak memicu ulang pipeline, dan tidak
+  mengubah proses upload, validasi, maupun prapemrosesan yang sudah ada.
+
 ---
 
 ## 6. Struktur Direktori dan Manfaatnya

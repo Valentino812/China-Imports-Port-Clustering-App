@@ -31,6 +31,171 @@ CAPPING_LABELS = {
     "micro_small_industries": ("Jumlah industri mikro dan kecil", "Global"),
 }
 
+# ---------------------------------------------------------------------------
+# Downloadable templates / reference data
+# ---------------------------------------------------------------------------
+DATA_DIR = Path(__file__).resolve().parents[1] / "dataset_input"
+CSV_MIME = "text/csv"
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+IMPORTS_TEMPLATE_ROWS = 5
+
+# ``source`` nama berkas di ``dataset_input/``; ``header`` dipakai sebagai
+# fallback bila berkas sumber tidak tersedia (mis. saat deployment tanpa data).
+TEMPLATE_SPECS = {
+    "imports": {
+        "source": "port_imports.csv",
+        "filename": "template_port_imports.csv",
+        "mime": CSV_MIME,
+        "hint": "Unduh Template Data Impor Pelabuhan",
+        "help": "Unduh template port_imports.csv (header + contoh baris).",
+        "header": "port,hs_code,usd_value",
+    },
+    "provinces": {
+        "source": "provinces_data.csv",
+        "filename": "template_provinces_data.csv",
+        "mime": CSV_MIME,
+        "hint": "Unduh Data Referensi Makroekonomi Provinsi",
+        "help": "Unduh data referensi provinces_data.csv (seluruh provinsi).",
+        "header": "Provinsi,pdrb,china_investment_us_ribu,micro_small_industries",
+    },
+    "conversion": {
+        "source": "HS2022_to_SITC_Conversion.xlsx",
+        "filename": "template_HS2022_to_SITC_Conversion.xlsx",
+        "mime": XLSX_MIME,
+        "hint": "Unduh Tabel Konversi HS 2022 ke SITC",
+        "help": "Unduh tabel konversi HS 2022 ke SITC Rev. 4.",
+        "header": "From HS 2022,To SITC Rev. 4",
+    },
+    "geolocation": {
+        "source": "port_geolocation.csv",
+        "filename": "template_port_geolocation.csv",
+        "mime": CSV_MIME,
+        "hint": "Unduh Data Referensi Geolokasi Pelabuhan",
+        "help": "Unduh data referensi port_geolocation.csv (seluruh pelabuhan).",
+        "header": "port,Provinsi,latitude,longitude",
+    },
+}
+
+TEMPLATE_CSS = """
+<style>
+/* Baris bantuan unduhan di bawah setiap komponen upload */
+.tpl-hint {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: #73798B;
+}
+[data-testid='stDownloadButton'] button {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
+    border: 1px solid #C9CED9 !important;
+    border-radius: 9px !important;
+    color: #343B50 !important;
+    font-family: 'Inter', system-ui, sans-serif !important;
+    box-shadow: none !important;
+    transition: background-color .15s ease, border-color .15s ease,
+                color .15s ease, box-shadow .15s ease !important;
+}
+[data-testid='stDownloadButton'] button:hover {
+    background: #F3F5FF !important;
+    border-color: #B9C2DA !important;
+    color: #1A1C2E !important;
+    box-shadow: 0 2px 6px rgba(79,107,237,0.12) !important;
+}
+[data-testid='stDownloadButton'] button:focus-visible {
+    outline: 2px solid #4F6BED !important;
+    outline-offset: 2px !important;
+}
+</style>
+"""
+
+
+def _read_text(path: Path) -> str:
+    """Read a text file, falling back to latin-1 on decoding errors."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return path.read_text(encoding="latin-1")
+
+
+def _read_imports_sample(path: Path) -> str:
+    """Return the CSV header plus a few sample rows with distinct ports."""
+    lines = _read_text(path).splitlines()
+    if not lines:
+        return ""
+    header = lines[0]
+    samples: list[str] = []
+    seen_ports: set[str] = set()
+    for line in lines[1:]:
+        port = line.split(",", 1)[0]
+        if not port or port in seen_ports:
+            continue
+        seen_ports.add(port)
+        samples.append(line)
+        if len(samples) == IMPORTS_TEMPLATE_ROWS:
+            break
+    return "\n".join([header, *samples]) + "\n"
+
+
+def _build_template(kind: str) -> bytes:
+    """Build the downloadable payload for ``kind``.
+
+    The port imports dataset is reduced to a small sample because the original
+    file is ~12 MB, while the province/geolocation reference tables and the
+    HS-SITC conversion workbook are shipped as-is so they can be used directly.
+    """
+    spec = TEMPLATE_SPECS[kind]
+    path = DATA_DIR / spec["source"]
+    if not path.exists():
+        return (spec["header"] + "\n").encode("utf-8")
+    if kind == "imports":
+        return _read_imports_sample(path).encode("utf-8")
+    return path.read_bytes()
+
+
+@st.cache_data(show_spinner=False)
+def _template_bytes(kind: str) -> bytes:
+    return _build_template(kind)
+
+
+def _render_template_row(kind: str) -> None:
+    """Render helper text on the left and download button on the right."""
+
+    spec = TEMPLATE_SPECS[kind]
+
+    with st.container(
+        horizontal=True,
+        horizontal_alignment="distribute",
+        vertical_alignment="center",
+        gap="small",
+    ):
+        # Left: helper text
+        st.markdown(
+            f'<div class="tpl-hint">{spec["hint"]}</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Right: download button
+        st.download_button(
+            label="",
+            data=_template_bytes(kind),
+            file_name=spec["filename"],
+            mime=spec["mime"],
+            icon=":material/download:",
+            icon_position="left",
+            help=spec["help"],
+            on_click="ignore",
+            key=f"template_{kind}",
+            width="content",
+        )
+
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
@@ -185,6 +350,7 @@ def render() -> None:
         "Unggah keempat berkas data persyaratan di bawah ini. Tahapan prapemrosesan dan pemodelan "
         "akan siap dijalankan setelah seluruh berkas terverifikasi valid."
     )
+    st.markdown(TEMPLATE_CSS, unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
     # Uploads
@@ -223,6 +389,7 @@ def render() -> None:
             key="upload_imports",
             help="Data impor pelabuhan: port, hs_code, usd_value.",
         )
+        _render_template_row("imports")
     with up2:
         provinces_upload = st.file_uploader(
             "provinces_data.csv",
@@ -230,6 +397,7 @@ def render() -> None:
             key="upload_provinces",
             help="Indikator makro provinsi: Provinsi, pdrb, china_investment_us_ribu, micro_small_industries.",
         )
+        _render_template_row("provinces")
 
     up3, up4 = st.columns(2)
     with up3:
@@ -239,6 +407,7 @@ def render() -> None:
             key="upload_conversion",
             help="Tabel korespondensi konversi HS 2022 ke SITC Rev. 4 (From HS 2022, To SITC Rev. 4).",
         )
+        _render_template_row("conversion")
     with up4:
         geolocation_upload = st.file_uploader(
             "port_geolocation.csv",
@@ -246,6 +415,7 @@ def render() -> None:
             key="upload_geolocation",
             help="Lokasi dan provinsi pelabuhan: port, Provinsi, latitude, longitude.",
         )
+        _render_template_row("geolocation")
 
     if imports_upload is not None:
         _store_upload("imports", imports_upload)
