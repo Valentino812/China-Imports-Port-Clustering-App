@@ -54,7 +54,7 @@ VIEW_TITLES = {
     "Ringkasan": (
         "Ringkasan Hasil Klasterisasi",
         "Tinjauan menyeluruh atas hasil pengelompokan kombinasi pelabuhan dan kategori komoditas SITC, "
-        "mencakup jumlah observasi, proporsi distribusi serta analisis deskriptif karakteristik setiap kelompok.",
+        "mencakup jumlah observasi, proporsi distribusi klaster, serta analisis deskriptif karakteristik setiap kelompok.",
     ),
     "Profil Klaster": (
         "Karakteristik & Profil Klaster",
@@ -421,6 +421,68 @@ def _narrative_accent_css(clusters: list[int]) -> str:
     color: #6B7280;
     font-variant-numeric: tabular-nums;
 }}
+/* Badge Z-score pada judul fitur numerik */
+.numeric-heading {{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 2px 0;
+}}
+.numeric-heading-title {{
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #1A1C2E;
+}}
+.z-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+}}
+.z-badge-icon {{
+    font-size: 11px;
+    font-weight: 700;
+}}
+.z-badge-far-above {{
+    background: #DCFCE7;
+    border-color: #BBF7D0;
+    color: #166534;
+}}
+.z-badge-above {{
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+    color: #047857;
+}}
+.z-badge-near {{
+    background: #F1F5F9;
+    border-color: #E2E8F0;
+    color: #475569;
+}}
+.z-badge-below {{
+    background: #FEF3C7;
+    border-color: #FDE68A;
+    color: #92400E;
+}}
+.z-badge-far-below {{
+    background: #FEE2E2;
+    border-color: #FECACA;
+    color: #991B1B;
+}}
+.z-badge-unavailable {{
+    background: #F3F4F6;
+    border-color: #E5E7EB;
+    color: #6B7280;
+}}
 {rules}
 </style>
 """
@@ -449,6 +511,34 @@ def _sitc_legend_html(categories: list[dict], colors: dict[str, str]) -> str:
         "<div class='sitc-legend-title'>Kategori SITC</div>"
         + "".join(rows)
         + "</div>"
+    )
+
+
+# Z-score comparison buckets produced by ``src.narrative``. Keeping the badge
+# copy here in one place guarantees it matches the narrative wording.
+Z_SCORE_BADGES = {
+    "far_above": ("↑↑", "Jauh di atas rata-rata", "far-above"),
+    "above": ("↑", "Di atas rata-rata", "above"),
+    "near": ("↔", "Mendekati rata-rata", "near"),
+    "below": ("↓", "Di bawah rata-rata", "below"),
+    "far_below": ("↓↓", "Jauh di bawah rata-rata", "far-below"),
+    "unavailable": ("–", "Tidak dapat dibandingkan", "unavailable"),
+}
+
+
+def _numeric_heading_html(item: dict) -> str:
+    """Render a numeric feature title with its Z-score classification badge."""
+    comparison = item.get("comparison", "unavailable")
+    icon, badge_label, tone = Z_SCORE_BADGES.get(
+        comparison, Z_SCORE_BADGES["unavailable"]
+    )
+    return (
+        "<div class='numeric-heading'>"
+        f"<span class='numeric-heading-title'>{escape(item.get('label', ''))}</span>"
+        f"<span class='z-badge z-badge-{tone}'>"
+        f"<span class='z-badge-icon' aria-hidden='true'>{icon}</span>"
+        f"{escape(badge_label)}</span>"
+        "</div>"
     )
 
 
@@ -609,10 +699,10 @@ def _render_cluster_narratives(result: dict) -> None:
         with expander:
             st.markdown("**A. Karakteristik Numerik**")
             for item in narrative["numeric"]:
-                st.markdown(f"**{item['label']}**")
+                st.markdown(_numeric_heading_html(item), unsafe_allow_html=True)
                 st.write(item["paragraph"])
 
-            st.markdown("**B. Karakteristik Kategorikal**")
+            st.markdown("**B. Karakteristik Kategorikal (Standard International Trade Classification)**")
             _render_sitc_donut_section(clustered, narrative)
             for paragraph in narrative["categorical"]["paragraphs"]:
                 st.write(paragraph)

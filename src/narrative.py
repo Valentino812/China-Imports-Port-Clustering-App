@@ -793,6 +793,8 @@ def generate_numeric_narrative(
                 "feature": item["feature"],
                 "label": item["label"],
                 "paragraph": " ".join(sentences),
+                "comparison": item.get("comparison", "unavailable"),
+                "z_score": item.get("z_score"),
                 "is_shap_important": bool(item.get("is_shap_important")),
             }
         )

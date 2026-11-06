@@ -203,6 +203,7 @@ Dashboard menggunakan sidebar internal untuk memilih lima tampilan. Halaman ini 
 - Pie chart proporsi klaster.
 - Tabel ukuran, jumlah pelabuhan, jumlah provinsi, dan proporsi klaster.
 - Analisis deskriptif karakteristik klaster: paragraf terpisah untuk setiap klaster yang mencakup karakteristik numerik, kategorikal SITC, geografis, dan identitas utama klaster.
+- Setiap judul fitur numerik pada bagian A dilengkapi badge Z-score (`↑↑` jauh di atas, `↑` di atas, `↔` mendekati, `↓` di bawah, `↓↓` jauh di bawah) dengan warna lembut yang konsisten; status netral "Tidak dapat dibandingkan" muncul bila standar deviasi global nol atau nilai tidak valid.
 - Setiap kartu narasi memakai aksen garis vertikal di sisi kiri yang warnanya diambil dari `cluster_color_map()`, sehingga konsisten dengan bar chart, pie chart, dan scatter plot klaster.
 - Bagian B setiap kartu menampilkan donut chart distribusi kategori SITC klaster, dengan warna kategori yang konsisten antar-klaster.
 - Bagian C setiap kartu menampilkan peta statis persebaran pelabuhan; kategori SITC dipilih melalui radio button di sisi kanan peta dan hanya berisi kategori yang dimiliki klaster tersebut.
@@ -590,6 +591,7 @@ Integrasi visualisasi di Dashboard Ringkasan:
 
 ```text
 _render_cluster_narratives()
+├── _numeric_heading_html()                → judul fitur + badge Z-score
 ├── _render_sitc_donut_section()          → donut + panel legenda responsif
 │   ├── sitc_distribution_donut()         → donut komposisi SITC per klaster
 │   └── _sitc_legend_html()               → legenda kanan; turun ke bawah di layar sempit
@@ -940,6 +942,7 @@ Konfigurasi K berada di `src/config.py`. Konstanta fitur dan skema berada di `sr
 - PNG peta dibuat lazy saat kartu klaster dibuka dan disimpan di cache berdasarkan data hasil filter, ID klaster, kategori SITC, warna identitas klaster, geographic extent, serta resolusi gambar.
 - Geographic extent peta dihitung dari seluruh pelabuhan unik klaster dengan lebar/tinggi minimum 350 km dan padding 12% untuk persebaran yang lebih luas; pusat peta adalah titik tengah bounding box. Karena extent tidak bergantung pada SITC terpilih, mengganti kategori tidak mengubah zoom maupun posisi peta.
 - Donut SITC memakai palet kualitatif terpisah dari `cluster_color_map`; warna klaster tetap dipakai untuk aksen kartu dan marker peta.
+- Badge Z-score pada bagian A memakai warna kategori sendiri (hijau, abu, kuning, merah lembut), terpisah dari `cluster_color_map`, dan hanya meringkas klasifikasi Z-score yang sama dengan kalimat narasi.
 - Kontrol skala log pada tab Profil Klaster saat ini dinonaktifkan dan kodenya dipertahankan sebagai komentar.
 - Peta menggunakan `scatter_geo`, bukan tile Carto.
 - Tampilan Data menampilkan nama kolom asli karena berfungsi sebagai ekspor dataset, bukan label presentasi.
