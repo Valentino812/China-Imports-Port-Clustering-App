@@ -45,6 +45,10 @@ _DEFAULTS = {
     "analysis_signature": None,
     "processing_error": None,
     "analysis_running": False,
+    "optimal_k_running": False,
+    "optimal_k_pending": None,
+    "optimal_k_result": None,
+    "optimal_k_error": None,
     "dashboard_view": "Ringkasan",
     "pipeline_summary": None,
 }

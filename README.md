@@ -75,8 +75,8 @@ Tujuan utama aplikasi:
 
 - Slider K dengan rentang **2–8**.
 - Nilai awal/default **K = 4**.
-- Opsi otomatis untuk memakai **K optimal = 5**.
-- Slider dinonaktifkan saat opsi K optimal dipilih.
+- Tombol **Cari K Optimal (Silhouette)** menguji K = 2–6 dan memilih rata-rata silhouette tertinggi.
+- Selama pencarian, slider dinonaktifkan dan tombol menampilkan indikator loading; setelah selesai slider ditempatkan pada K terbaik.
 - Perubahan data atau K mendeteksi hasil analisis lama sebagai tidak valid.
 
 ### Prapemrosesan
@@ -166,9 +166,10 @@ Komponen utama:
 
 4. **Konfigurasi K**
    - K default = 4;
-   - K optimal = 5;
    - rentang K = 2–8;
-   - checkbox otomatis untuk memakai K optimal.
+   - tombol **Cari K Optimal (Silhouette)** menguji K = 2–6;
+   - slider dan tombol proses dinonaktifkan selama pencarian; slider ditempatkan pada K terbaik setelah selesai;
+   - tabel skor silhouette per K ditampilkan dalam expander.
 
 5. **Tombol proses**
    - menjalankan `run_preprocessing()`;
@@ -387,7 +388,7 @@ China-Imports-Port-Clustering-App/
 | `pages/1_Beranda.py` | Memberikan konteks penelitian dan navigasi awal tanpa menjalankan komputasi. |
 | `pages/2_Input_Data.py` | Menangani upload, validasi, konfigurasi K, eksekusi pipeline, dan ringkasan hasil. |
 | `pages/3_Dashboard.py` | Menyajikan hasil analisis melalui lima tampilan dan mengatur interaksi visual. |
-| `src/config.py` | Menyimpan konstanta bersama seperti rentang K, K default, K optimal, ambang analisis naratif, dan deskripsi kode SITC. |
+| `src/config.py` | Menyimpan konstanta bersama seperti rentang K, K default, rentang pencarian K optimal (2–6), ambang analisis naratif, dan deskripsi kode SITC. |
 | `src/__init__.py` | Menandai `src` sebagai package Python sehingga modul dapat diimpor oleh halaman Streamlit. |
 | `src/preprocessing.py` | Mengubah data mentah menjadi dataset siap model dengan validasi yang ketat. |
 | `src/modeling.py` | Menjalankan K-Prototypes, evaluasi, surrogate Random Forest, dan SHAP. |
@@ -695,13 +696,29 @@ run_modeling()
 └── gabungkan label klaster ke dataset
 ```
 
+### Pencarian K optimal
+
+Fungsi terpisah, dipanggil dari tombol **Cari K Optimal (Silhouette)** di halaman Input Data:
+
+```text
+find_optimal_k_by_silhouette(df_final, k_values=OPTIMAL_K_RANGE)
+├── prepare_model_matrix()
+├── untuk setiap K = 2–6:
+│   ├── fit_final_kprototypes()
+│   └── kprototypes_silhouette()
+├── lewati K yang gagal inisialisasi (silhouette = NaN)
+└── pilih silhouette rata-rata tertinggi (seri → K terkecil)
+```
+
+Mengembalikan `best_k`, `best_silhouette`, `scores`, dan `skipped_k`. Fungsi ini hanya menjalankan K-Prototypes dan silhouette; surrogate Random Forest serta SHAP tidak dilatih.
+
 ### Parameter utama
 
 | Parameter | Nilai |
 |---|---|
 | Rentang K | 2–8 |
 | K default | 4 |
-| K optimal | 5 |
+| Rentang pencarian K optimal | 2–6 (`OPTIMAL_K_RANGE`) |
 | K-Prototypes init | `Huang` |
 | `n_init` final | 5 |
 | `n_init` Elbow | 3 |
@@ -897,7 +914,7 @@ Aplikasi akan terbuka pada browser dan dimulai dari halaman Beranda.
 3. Pastikan seluruh status berkas valid.
 4. Pilih K:
    - manual pada rentang 2–8;
-   - atau centang opsi K optimal untuk memakai K = 5.
+   - atau klik **Cari K Optimal (Silhouette)** untuk menguji K = 2–6 dan memakai K dengan silhouette tertinggi.
 5. Klik **Proses Data dan Jalankan Analisis**.
 6. Tunggu preprocessing, K-Prototypes, evaluasi, surrogate, dan SHAP selesai.
 7. Klik **Lihat Hasil Analisis**.
@@ -913,7 +930,7 @@ Aplikasi akan terbuka pada browser dan dimulai dari halaman Beranda.
 | K minimum | 2 |
 | K maksimum | 8 |
 | K default | 4 |
-| K optimal | 5 |
+| Rentang pencarian K optimal | 2–6 |
 | Random state | 42 |
 | Silhouette sample | 2500 |
 | IQR multiplier | 3 |

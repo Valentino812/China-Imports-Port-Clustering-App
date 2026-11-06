@@ -4,9 +4,8 @@ Keep the meaning of the cluster-count constants explicit:
 
 * ``DEFAULT_K`` is the initial slider value used when the user starts an
   experiment.
-* ``OPTIMAL_K`` is the evaluated optimum selected by the automatic option.
-
-The two values are intentionally different.
+* ``OPTIMAL_K_MIN`` / ``OPTIMAL_K_MAX`` bound the silhouette search performed 
+by the "Cari K Optimal" action on the Input Data page. 
 
 The narrative thresholds are centralised here so the Dashboard narrative and
 its tests share one source of truth.
@@ -19,7 +18,11 @@ K_MAX = 8
 K_RANGE = range(K_MIN, K_MAX + 1)
 
 DEFAULT_K = 4
-OPTIMAL_K = 5
+
+# Silhouette-based optimal-K search range (inclusive).
+OPTIMAL_K_MIN = 2
+OPTIMAL_K_MAX = 6
+OPTIMAL_K_RANGE = range(OPTIMAL_K_MIN, OPTIMAL_K_MAX + 1)
 
 # ---------------------------------------------------------------------------
 # Narrative analysis thresholds

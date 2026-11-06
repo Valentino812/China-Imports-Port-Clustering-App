@@ -11,9 +11,10 @@ This module is a Python translation of ``k-prototypes.ipynb``:
 * A Random Forest surrogate with fidelity metrics, and SHAP explanations of the
   surrogate predictions.
 
-The UI starts from ``DEFAULT_K = 4``. The evaluated optimum is ``OPTIMAL_K = 5``
-and is selected explicitly through the automatic-K option; the two values are
-intentionally different.
+The UI starts from ``DEFAULT_K = 4``. The optimal number of clusters is not a
+fixed constant: ``find_optimal_k_by_silhouette`` evaluates candidate K values
+(``OPTIMAL_K_RANGE``, currently 2-6) with the same mixed silhouette used by the
+evaluation view and returns the best-scoring K.
 
 The numeric features are standardised exactly once, here, so the frames coming
 from :mod:`src.preprocessing` remain in their original units.
@@ -42,6 +43,7 @@ from sklearn.preprocessing import StandardScaler
 from src.config import (
     DEFAULT_K,
     K_RANGE,
+    OPTIMAL_K_RANGE,
 )
 from src.preprocessing import CATEGORICAL_COLS, FEATURE_COLS, NUMERICAL_COLS
 
@@ -184,6 +186,82 @@ def kprototypes_silhouette(
         random_state=random_state if use_sample else None,
     )
     return float(score), (sample_size if use_sample else n)
+
+
+def find_optimal_k_by_silhouette(
+    df_final: pd.DataFrame,
+    k_values: range | list[int] | None = None,
+    random_state: int = 42,
+    progress_callback=None,
+) -> dict[str, Any]:
+    """Evaluate candidate K values and return the best mean silhouette.
+
+    The function repeats :func:`kprototypes_silhouette` for every K in
+    ``OPTIMAL_K_RANGE`` (2-6 by default). It fits K-Prototypes with the same
+    configuration used for the final model, so the comparison reflects the
+    clustering that will actually be used. Ties are resolved by the smallest K.
+
+    Returns ``{"best_k", "best_silhouette", "scores"}`` where ``scores`` always
+    contains one row per candidate K, including ``NaN`` silhouette values.
+    """
+    candidates = list(OPTIMAL_K_RANGE if k_values is None else k_values)
+    if not candidates:
+        raise ValueError("Daftar kandidat K kosong.")
+
+    prepared = prepare_model_matrix(df_final)
+    rows: list[dict[str, Any]] = []
+    skipped: list[int] = []
+
+    for position, k in enumerate(candidates, start=1):
+        k = int(k)
+        try:
+            model, labels = fit_final_kprototypes(
+                prepared["data_array"],
+                prepared["categorical_index"],
+                n_clusters=k,
+                random_state=random_state,
+            )
+            gamma = float(getattr(model, "gamma", 1.0))
+            silhouette, sample_n = kprototypes_silhouette(
+                prepared["X_model"],
+                labels,
+                gamma,
+                numerical_cols=prepared["numerical_cols"],
+                categorical_cols=prepared["categorical_cols"],
+            )
+        except Exception:
+            # Some K values cannot be initialised when the categorical feature
+            # has too few distinct values. Keep the search alive and record NaN.
+            silhouette, sample_n = float("nan"), 0
+            skipped.append(k)
+
+        rows.append(
+            {
+                "K": k,
+                "Silhouette": float(silhouette),
+                "N": int(sample_n),
+            }
+        )
+        if progress_callback is not None:
+            progress_callback(position / len(candidates), k, float(silhouette))
+
+    scores = pd.DataFrame(rows)
+    valid = scores.replace([np.inf, -np.inf], np.nan).dropna(subset=["Silhouette"])
+    if valid.empty:
+        raise ValueError(
+            "Silhouette tidak dapat dihitung untuk seluruh kandidat K. "
+            "Periksa variasi data dan jumlah observasi."
+        )
+
+    best = valid.sort_values(
+        ["Silhouette", "K"], ascending=[False, True]
+    ).iloc[0]
+    return {
+        "best_k": int(best["K"]),
+        "best_silhouette": float(best["Silhouette"]),
+        "scores": scores,
+        "skipped_k": skipped,
+    }
 
 
 # ---------------------------------------------------------------------------

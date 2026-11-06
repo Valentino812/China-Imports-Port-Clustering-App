@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.config import OPTIMAL_K, SITC_LABELS
+from src.config import OPTIMAL_K_MAX, OPTIMAL_K_MIN, SITC_LABELS
 from src.modeling import SILHOUETTE_SAMPLE_SIZE
 from src.narrative import generate_all_cluster_narratives
 from src.visualization import (
@@ -1192,17 +1192,30 @@ def _render_shap_section(result: dict) -> None:
 def _render_elbow_section(elbow: pd.DataFrame, k: int) -> None:
     st.subheader("Penentuan Jumlah Klaster Optimal dengan Metode Elbow")
     st.plotly_chart(elbow_line(elbow, k), width="stretch")
-    k_note = (
-        f"K optimal hasil evaluasi adalah K = {OPTIMAL_K}, sedangkan K yang "
-        f"digunakan pada model ini adalah K = {k}."
-    )
-    if int(k) == OPTIMAL_K:
-        k_note += " Nilai ini sama dengan K optimal."
+
+    optimal_result = st.session_state.get("optimal_k_result")
+    if optimal_result:
+        best_k = int(optimal_result["best_k"])
+        best_silhouette = float(optimal_result["best_silhouette"])
+        k_note = (
+            f"K optimal berdasarkan rata-rata silhouette adalah K = {best_k} "
+            f"(silhouette {best_silhouette:.4f}), sedangkan K yang digunakan pada "
+            f"model ini adalah K = {k}."
+        )
+        if int(k) == best_k:
+            k_note += " Nilai ini sama dengan K optimal hasil pencarian silhouette."
+    else:
+        k_note = (
+            f"K yang digunakan pada model ini adalah K = {k}. K optimal belum dihitung "
+            "pada sesi ini."
+        )
+
     st.caption(
-        "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Nilai K optimal "
+        "Grafik nilai cost K-Prototypes terhadap jumlah klaster (K). Berdasarkan elbow method, Nilai K optimal "
         "dipilih pada titik 'siku' (elbow), yaitu saat penurunan cost mulai tidak "
-        f"signifikan. {k_note} Jika ingin memakai K optimal, centang opsi "
-        "“Konfigurasi jumlah klaster paling optimal” di halaman Input Data."
+        f"signifikan. {k_note} Pencarian K optimal di halaman Input Data menguji "
+        f"K = {OPTIMAL_K_MIN}–{OPTIMAL_K_MAX} dan memilih rata-rata silhouette "
+        "tertinggi."
     )
     st.dataframe(
         elbow.rename(columns={"K": "Jumlah Klaster (K)", "Cost": "Total Cost"}).round(4),

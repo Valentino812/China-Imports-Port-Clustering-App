@@ -11,8 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import streamlit as st
 
-from src.config import DEFAULT_K, K_MAX, K_MIN, OPTIMAL_K
-from src.modeling import run_modeling
+from src.config import (
+    DEFAULT_K,
+    K_MAX,
+    K_MIN,
+    OPTIMAL_K_MAX,
+    OPTIMAL_K_MIN,
+)
+from src.modeling import find_optimal_k_by_silhouette, run_modeling
 from src.preprocessing import (
     CONVERSION_REQUIRED,
     GEOLOCATION_REQUIRED,
@@ -218,6 +224,9 @@ def _store_upload(kind: str, upload) -> None:
         st.session_state[key] = signature
         st.session_state["analysis_result"] = None
         st.session_state["analysis_signature"] = None
+        st.session_state["optimal_k_result"] = None
+        st.session_state["optimal_k_error"] = None
+        st.session_state["optimal_k_pending"] = None
         return
 
     required = {
@@ -235,6 +244,9 @@ def _store_upload(kind: str, upload) -> None:
     st.session_state[key] = signature
     st.session_state["analysis_result"] = None
     st.session_state["analysis_signature"] = None
+    st.session_state["optimal_k_result"] = None
+    st.session_state["optimal_k_error"] = None
+    st.session_state["optimal_k_pending"] = None
 
 
 def _reset_input_data() -> None:
@@ -451,21 +463,20 @@ def render() -> None:
     # ------------------------------------------------------------------
     st.subheader("2 · Parameter & Konfigurasi Klasterisasi")
     st.session_state.setdefault("n_clusters", DEFAULT_K)
+
+    # Apply the silhouette result before the slider is instantiated. Writing
+    # ``n_clusters`` after the widget exists would raise a Streamlit error.
+    pending_optimal_k = st.session_state.pop("optimal_k_pending", None)
+    if pending_optimal_k is not None:
+        st.session_state["n_clusters"] = int(pending_optimal_k)
+
     st.session_state["n_clusters"] = min(
         max(int(st.session_state["n_clusters"]), K_MIN),
         K_MAX,
     )
 
-    auto_optimal_k = st.checkbox(
-        "Konfigurasi jumlah klaster paling optimal",
-        key="auto_optimal_k",
-        value=False,
-        help=(
-            "Memilih jumlah klaster paling optimal"
-        ),
-    )
-    if auto_optimal_k:
-        st.session_state["n_clusters"] = OPTIMAL_K
+    is_running = bool(st.session_state.get("analysis_running", False))
+    optimizing = bool(st.session_state.get("optimal_k_running", False))
 
     st.slider(
         "Jumlah klaster (K)",
@@ -473,11 +484,39 @@ def render() -> None:
         max_value=K_MAX,
         step=1,
         key="n_clusters",
-        disabled=auto_optimal_k,
+        disabled=optimizing or is_running,
         help=(
             "Tentukan jumlah klaster (K) yang ingin dibentuk untuk pemodelan K-Prototypes"
         ),
     )
+
+    optimize_clicked = st.button(
+        (
+            "Mencari K Optimal..."
+            if optimizing
+            else "Cari K Optimal (Berdasarkan Silhouette)"
+        ),
+        icon=(
+            ":material/hourglass_top:"
+            if optimizing
+            else ":material/auto_awesome:"
+        ),
+        width="stretch",
+        disabled=not all_valid or optimizing or is_running,
+        help=(
+            f"Menghitung rata-rata silhouette K-Prototypes untuk K="
+            f"{OPTIMAL_K_MIN}–{OPTIMAL_K_MAX}, lalu memilih K tertinggi. "
+            "Slider dinonaktifkan selama pencarian."
+        ),
+    )
+
+    if optimize_clicked and all_valid and not optimizing and not is_running:
+        st.session_state["optimal_k_running"] = True
+        st.session_state["optimal_k_error"] = None
+        st.session_state["optimal_k_result"] = None
+        st.session_state["optimal_k_pending"] = None
+        st.rerun()
+
     st.caption(
         "⚙️ Fitur yang digunakan dalam pemodelan:\n\n"
         "**Kategorikal:** `sitc` (kelompok komoditas SITC Rev. 4).\n\n"
@@ -501,21 +540,86 @@ def render() -> None:
     if missing:
         st.warning("Berkas berikut belum tersedia atau belum valid: " + ", ".join(missing) + ". Silakan periksa kembali berkas yang diunggah.")
 
-    is_running = bool(st.session_state.get("analysis_running", False))
     process_clicked = st.button(
         "Proses Data dan Jalankan Analisis",
         type="primary",
         width="stretch",
-        disabled=not all_valid or is_running,
+        disabled=not all_valid or is_running or optimizing,
     )
     if is_running:
         st.caption(
             "⏳ Pemrosesan sedang berjalan..."
         )
 
+    # The expensive search runs after both action buttons are rendered, so the
+    # process button is already sent to the browser in its disabled state.
+    if optimizing:
+        try:
+            with st.spinner(
+                f"Menghitung silhouette untuk K={OPTIMAL_K_MIN}–{OPTIMAL_K_MAX}..."
+            ):
+                pre_result = run_preprocessing(
+                    align_columns(
+                        st.session_state["imports_df"], IMPORTS_REQUIRED
+                    ),
+                    align_columns(
+                        st.session_state["provinces_df"], PROVINCES_REQUIRED
+                    ),
+                    align_columns(
+                        st.session_state["conversion_df"], CONVERSION_REQUIRED
+                    ),
+                    align_columns(
+                        st.session_state["geolocation_df"], GEOLOCATION_REQUIRED
+                    ),
+                )
+                optimal_result = find_optimal_k_by_silhouette(
+                    pre_result["df_final"]
+                )
+            st.session_state["optimal_k_result"] = optimal_result
+            st.session_state["optimal_k_pending"] = optimal_result["best_k"]
+        except Exception as exc:  # noqa: BLE001 - surface search failure
+            st.session_state["optimal_k_error"] = str(exc)
+        finally:
+            st.session_state["optimal_k_running"] = False
+            st.rerun()
+
+    if st.session_state.get("optimal_k_error"):
+        st.error(
+            "Pencarian K optimal gagal: "
+            f"{st.session_state['optimal_k_error']}"
+        )
+
+    optimal_result = st.session_state.get("optimal_k_result")
+    if optimal_result:
+        st.success(
+            "K optimal berdasarkan rata-rata silhouette: "
+            f"**K = {optimal_result['best_k']}** "
+            f"(silhouette {optimal_result['best_silhouette']:.4f})."
+        )
+        skipped = optimal_result.get("skipped_k") or []
+        if skipped:
+            st.caption(
+                "K berikut tidak dapat dievaluasi karena inisialisasi K-Prototypes "
+                "gagal: " + ", ".join(f"K={value}" for value in skipped) + "."
+            )
+        with st.expander("Lihat skor silhouette per K"):
+            st.dataframe(
+                optimal_result["scores"]
+                .rename(
+                    columns={
+                        "K": "K",
+                        "Silhouette": "Rata-rata Silhouette",
+                        "N": "Jumlah Sampel",
+                    }
+                )
+                .round(4),
+                width="stretch",
+                hide_index=True,
+            )
+
     current_signature = _current_signature()
 
-    if process_clicked and all_valid and not is_running:
+    if process_clicked and all_valid and not is_running and not optimizing:
         st.session_state["analysis_running"] = True
         st.rerun()
 
