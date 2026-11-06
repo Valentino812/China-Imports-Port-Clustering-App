@@ -174,6 +174,7 @@ Komponen utama:
    - menjalankan `run_preprocessing()`;
    - dilanjutkan `run_modeling()`;
    - menampilkan progress dan status;
+   - **dinonaktifkan selama pemrosesan berjalan** (flag `analysis_running`) dan aktif kembali setelah selesai atau gagal;
    - menyimpan hasil ke `st.session_state["analysis_result"]`.
 
 6. **Ringkasan hasil**

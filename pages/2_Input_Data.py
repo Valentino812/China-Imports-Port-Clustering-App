@@ -501,16 +501,25 @@ def render() -> None:
     if missing:
         st.warning("Berkas berikut belum tersedia atau belum valid: " + ", ".join(missing) + ". Silakan periksa kembali berkas yang diunggah.")
 
+    is_running = bool(st.session_state.get("analysis_running", False))
     process_clicked = st.button(
         "Proses Data dan Jalankan Analisis",
         type="primary",
         width="stretch",
-        disabled=not all_valid,
+        disabled=not all_valid or is_running,
     )
+    if is_running:
+        st.caption(
+            "⏳ Pemrosesan sedang berjalan..."
+        )
 
     current_signature = _current_signature()
 
-    if process_clicked and all_valid:
+    if process_clicked and all_valid and not is_running:
+        st.session_state["analysis_running"] = True
+        st.rerun()
+
+    if is_running:
         st.session_state["processing_error"] = None
         st.session_state["analysis_result"] = None
         progress = st.progress(0, text="Menginisialisasi pipeline analisis...")
@@ -548,6 +557,9 @@ def render() -> None:
             st.session_state["processing_error"] = str(exc)
             st.session_state["analysis_result"] = None
             st.session_state["analysis_signature"] = None
+        finally:
+            st.session_state["analysis_running"] = False
+            st.rerun()
 
     if st.session_state.get("processing_error"):
         st.error(f"Proses belum berhasil dijalankan: {st.session_state['processing_error']}")

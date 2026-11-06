@@ -44,6 +44,7 @@ _DEFAULTS = {
     "analysis_result": None,
     "analysis_signature": None,
     "processing_error": None,
+    "analysis_running": False,
     "dashboard_view": "Ringkasan",
     "pipeline_summary": None,
 }
