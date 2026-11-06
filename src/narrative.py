@@ -600,18 +600,6 @@ def analyze_categorical_profile(
         else:
             concentration = "moderate"
 
-        others = [
-            {
-                "code": str(code),
-                "description": _sitc_description(code),
-                "percentage": float(percentages[code]),
-                "percentage_label": _format_percentage(float(percentages[code])),
-            }
-            for code in counts.index
-            if str(code) not in modes
-        ]
-        others.sort(key=lambda row: (-row["percentage"], _sitc_sort_key(row["code"])))
-
         cluster_id = int(cluster)
         share = None
         if shap_info and shap_info.get("available"):
@@ -630,7 +618,6 @@ def analyze_categorical_profile(
             "entropy": float(entropy),
             "entropy_raw": float(raw_entropy),
             "concentration": concentration,
-            "others": others,
             "shap_share": float(share) if share is not None else None,
             "is_shap_important": bool(
                 share is not None and share >= SHAP_IMPORTANCE_THRESHOLD
@@ -813,7 +800,6 @@ def generate_categorical_narrative(
             "paragraphs": [
                 "Distribusi kategori SITC tidak tersedia untuk klaster ini."
             ],
-            "other_distribution": [],
             "modes": [],
             "mode_percentage": 0.0,
             "categories": [],
@@ -879,7 +865,6 @@ def generate_categorical_narrative(
 
     return {
         "paragraphs": paragraphs,
-        "other_distribution": analysis["others"],
         "modes": list(analysis["modes"]),
         "mode_percentage": float(analysis["mode_percentage"]),
         "categories": [

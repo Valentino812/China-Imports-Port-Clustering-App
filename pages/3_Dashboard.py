@@ -669,6 +669,13 @@ def _render_cluster_narratives(result: dict) -> None:
         "SITC, kontribusi fitur pembeda, dan persebaran geografis pelabuhan pada setiap "
         "klaster. Seluruh statistik dihitung dari dataset final setelah prapemrosesan "
         "dan pembatasan outlier (IQR capping), menggunakan nilai dalam satuan aslinya."
+        "\n\n"
+        "CATATAN PENTING: Analisis Deskriptif Karakteristik Klaster hanya merangkum profil "
+        "karakteristik yang diperoleh dari setiap klaster tanpa mempertimbangkan kualitas "
+        "pengelompokan dari setiap klaster. Informasi mengenai kualitas pengelompokan "
+        "setiap klaster dapat dilihat pada tab evaluasi berdasarkan silhouette dari setiap "
+        "klaster dan informasi statistik yang dirangkum oleh analisis karakteristik dapat "
+        "dilihat pada tab Profil Klaster."
     )
 
     narratives = generate_all_cluster_narratives(result["modeling"])
@@ -706,16 +713,6 @@ def _render_cluster_narratives(result: dict) -> None:
             _render_sitc_donut_section(clustered, narrative)
             for paragraph in narrative["categorical"]["paragraphs"]:
                 st.write(paragraph)
-            others = narrative["categorical"]["other_distribution"]
-            if others:
-                st.markdown("Distribusi kategori lainnya adalah sebagai berikut:")
-                st.markdown(
-                    "\n".join(
-                        f"- **SITC {row['code']}** — {row['description']}: "
-                        f"{row['percentage_label']}"
-                        for row in others
-                    )
-                )
 
             st.markdown("**C. Karakteristik Geografis**")
             for paragraph in narrative["geographic"]["paragraphs"]:
