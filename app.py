@@ -168,9 +168,29 @@ div[data-testid='stVerticalBlockBorderWrapper'] { border-radius: 14px; }
 }
 .section-card p {
     margin: 0;
+    text-align: justify;
     color: #4B5563;
     font-size: 14px;
     line-height: 1.65;
+}
+
+/* ─── Guide banner (above section cards) ────────────────────────────── */
+.guide-banner {
+    background: linear-gradient(135deg, #4F6BED 0%, #6C83F0 100%);
+    color: #FFFFFF;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-align: center;
+    padding: 14px 24px;
+    border-radius: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 3px 12px rgba(79,107,237,0.18);
+}
+.guide-banner-icon {
+    margin-right: 8px;
+    font-size: 18px;
 }
 
 /* ─── Status badges ─────────────────────────────────────────────────── */

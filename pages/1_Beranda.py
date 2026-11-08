@@ -33,14 +33,26 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        """
+        <div class="guide-banner">
+          <span class="guide-banner-icon">📖</span> Panduan Pengguna
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(
             """
             <div class="section-card">
               <h4>01 · Input Data</h4>
-              <p>Unggah empat berkas data wajib: data transaksi impor, data makro provinsi, tabel konversi HS–SITC,
-              dan data geolokasi pelabuhan, lalu tentukan jumlah klaster yang diinginkan.</p>
+              <p>Buka halaman <strong>Input Data</strong>, lalu unggah empat berkas wajib secara berurutan:
+              data transaksi impor pelabuhan, data makroekonomi provinsi, tabel konversi HS 2022 ke SITC Rev.&nbsp;4,
+              dan data geolokasi pelabuhan. Setelah keempat berkas terverifikasi valid, atur jumlah klaster (K)
+              menggunakan slider yang tersedia atau gunakan fitur pencarian K optimal berbasis Silhouette, kemudian
+              tekan tombol <strong>Proses Data dan Jalankan Analisis</strong> untuk memulai pipeline.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -50,8 +62,11 @@ def render() -> None:
             """
             <div class="section-card">
               <h4>02 · Proses Klasterisasi</h4>
-              <p>Prapemrosesan otomatis, pemodelan K-Prototypes, evaluasi Elbow &amp; Silhouette campuran, hingga
-              pelatihan model surrogate Random Forest dan analisis SHAP.</p>
+              <p>Seluruh tahapan klasterisasi dilakukan secara otomatis oleh aplikasi. Pipeline mencakup
+              prapemrosesan data (konversi kode HS–SITC, agregasi transaksi, penggabungan data provinsi,
+              dan pembatasan outlier), pemodelan klaster menggunakan algoritma K-Prototypes, evaluasi kualitas
+              klaster melalui metode Elbow dan Silhouette, hingga pelatihan model surrogate Random Forest
+              beserta analisis SHAP untuk interpretasi kontribusi fitur.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -61,8 +76,12 @@ def render() -> None:
             """
             <div class="section-card">
               <h4>03 · Eksplorasi Hasil</h4>
-              <p>Telaah wawasan mendalam melalui menu Ringkasan, Profil Klaster, Evaluasi Model, Distribusi Spasial,
-              dan Unduhan Data pada dashboard interaktif.</p>
+              <p>Setelah pipeline selesai, buka halaman <strong>Dashboard</strong> untuk mengeksplorasi hasil melalui
+              lima menu: <strong>Ringkasan</strong> (proporsi dan analisis deskriptif klaster),
+              <strong>Profil Klaster</strong> (statistik numerik, distribusi SITC, dan nilai SHAP per klaster),
+              <strong>Evaluasi</strong> (kurva Elbow, skor Silhouette, dan fidelity model surrogate),
+              <strong>Peta</strong> (distribusi spasial pelabuhan), serta
+              <strong>Data</strong> (pratinjau dan ekspor dataset setiap tahap pipeline).</p>
             </div>
             """,
             unsafe_allow_html=True,
