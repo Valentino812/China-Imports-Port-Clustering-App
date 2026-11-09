@@ -1028,7 +1028,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "china_investment_us_ribu",
             "y_label": "Nilai Investasi Tiongkok (Ribuan USD)",
-            "title": "Nilai Impor (USD) vs Nilai Investasi Tiongkok (Ribuan USD)",
+            "title": "Antara Nilai Impor (USD) dan Nilai Investasi Tiongkok (Ribuan USD)",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_investment",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -1040,7 +1040,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "micro_small_industries",
             "y_label": "Jumlah Industri Mikro Kecil",
-            "title": "Nilai Impor (USD) vs Jumlah Industri Mikro Kecil",
+            "title": "Antara Nilai Impor (USD) dan Jumlah Industri Mikro Kecil",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_industries",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
@@ -1052,7 +1052,7 @@ def _render_cluster_scatters(result: dict) -> None:
         {
             "y": "pdrb",
             "y_label": "PDRB (Miliar rupiah)",
-            "title": "Nilai Impor (USD) vs PDRB (Miliar rupiah)",
+            "title": "Antara Nilai Impor (USD) dan PDRB (Miliar rupiah)",
             # [LOG SCALE FEATURE - DISABLED] "key": "profile_scatter_log_pdrb",
             "caption": (
                 "Scatter plot ini menampilkan distribusi kombinasi pelabuhan–SITC berdasarkan nilai "
