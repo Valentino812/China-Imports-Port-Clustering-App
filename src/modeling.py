@@ -13,7 +13,7 @@ This module is a Python translation of ``k-prototypes.ipynb``:
 
 The UI starts from ``DEFAULT_K = 4``. The optimal number of clusters is not a
 fixed constant: ``find_optimal_k_by_silhouette`` evaluates candidate K values
-(``OPTIMAL_K_RANGE``, currently 2-6) with the same mixed silhouette used by the
+(``OPTIMAL_K_RANGE``, currently 2-8) with the same mixed silhouette used by the
 evaluation view and returns the best-scoring K.
 
 The numeric features are standardised exactly once, here, so the frames coming
@@ -197,7 +197,7 @@ def find_optimal_k_by_silhouette(
     """Evaluate candidate K values and return the best mean silhouette.
 
     The function repeats :func:`kprototypes_silhouette` for every K in
-    ``OPTIMAL_K_RANGE`` (2-6 by default). It fits K-Prototypes with the same
+    ``OPTIMAL_K_RANGE`` (2-8 by default). It fits K-Prototypes with the same
     configuration used for the final model, so the comparison reflects the
     clustering that will actually be used. Ties are resolved by the smallest K.
 

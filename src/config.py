@@ -21,7 +21,7 @@ DEFAULT_K = 4
 
 # Silhouette-based optimal-K search range (inclusive).
 OPTIMAL_K_MIN = 2
-OPTIMAL_K_MAX = 6
+OPTIMAL_K_MAX = 8
 OPTIMAL_K_RANGE = range(OPTIMAL_K_MIN, OPTIMAL_K_MAX + 1)
 
 # ---------------------------------------------------------------------------
