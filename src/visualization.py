@@ -967,7 +967,17 @@ def geo_scatter(
     fig.update_traces(
         marker=dict(size=10, opacity=0.9, line=dict(width=1, color="white"))
     )
-    fig.update_geos(fitbounds="locations", visible=True, showcountries=True, countrycolor="#D0D0D0")
+    fig.update_geos(
+        fitbounds="locations",
+        visible=True,
+        showcountries=True,
+        countrycolor="#D0D0D0",
+        showcoastlines=True,
+        coastlinecolor="#B8C0CC",
+        coastlinewidth=1.8,
+        resolution=50,
+        landcolor="#F7F8FA",
+    )
     fig.update_layout(height=560, margin=dict(l=0, r=0, t=50, b=0), legend_title_text=legend_title)
     return fig
 
