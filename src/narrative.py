@@ -206,6 +206,27 @@ def _format_percentage(value: float) -> str:
     return f"{value:.1f}%"
 
 
+def _format_stat_value(value: object, digits: int = 2) -> str | None:
+    """Format a numeric statistic compactly, without trailing zeros."""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(number):
+        return None
+    text = f"{number:.{digits}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _append_stat_evidence(sentence: str, evidence: str) -> str:
+    """Append an evidence clause in parentheses before the final period."""
+    return f"{sentence.rstrip().rstrip('.')} ({evidence})."
+
+
 def _canonical_province(value: object) -> str | None:
     """Return the title-cased province name, or ``None`` when unusable."""
     if value is None:
@@ -746,6 +767,13 @@ def generate_numeric_narrative(
             )
 
         comparison_sentence = COMPARISON_SENTENCES.get(item.get("comparison"))
+        if comparison_sentence:
+            z_text = _format_stat_value(item.get("z_score"), 2)
+            if z_text is not None:
+                comparison_sentence = _append_stat_evidence(
+                    comparison_sentence,
+                    f"Berdasarkan Z-Value sebesar {z_text}",
+                )
         max_sentence = None
         if item.get("is_unique_max"):
             max_sentence = (
@@ -770,10 +798,18 @@ def generate_numeric_narrative(
             )
 
         if item.get("is_shap_important"):
-            sentences.append(
+            shap_sentence = (
                 f"Fitur {item['label']} ini juga menjadi salah satu karakteristik "
                 "yang kuat dalam membedakan klaster ini dibandingkan kelompok lainnya."
             )
+            share = item.get("shap_share")
+            if share is not None and np.isfinite(float(share)):
+                shap_sentence = _append_stat_evidence(
+                    shap_sentence,
+                    "Berdasarkan SHAP importance share sebesar "
+                    f"{float(share) * 100:.1f}%",
+                )
+            sentences.append(shap_sentence)
 
         paragraphs.append(
             {
@@ -837,31 +873,52 @@ def generate_categorical_narrative(
             f"Seluruh kategori tersebut masing-masing memiliki proporsi sebesar {mode_pct}."
         )
 
+    entropy_text = _format_stat_value(analysis.get("entropy"), 3)
     if analysis["concentration"] == "concentrated":
         if len(modes) == 1:
-            paragraphs.append(
+            entropy_sentence = (
                 "Distribusi kategori SITC pada klaster ini menunjukkan konsentrasi "
                 f"pada kategori {mode_codes}."
             )
         else:
-            paragraphs.append(
+            entropy_sentence = (
                 "Distribusi kategori SITC pada klaster ini menunjukkan konsentrasi "
                 f"pada kategori-kategori {mode_codes}."
             )
+        if entropy_text is not None:
+            entropy_sentence = _append_stat_evidence(
+                entropy_sentence,
+                f"Berdasarkan nilai normalized entropy sebesar {entropy_text}",
+            )
+        paragraphs.append(entropy_sentence)
     elif analysis["concentration"] == "balanced":
         mode_phrase = (
             f"{mode_codes} merupakan kategori dengan proporsi terbesar"
         )
-        paragraphs.append(
+        entropy_sentence = (
             f"Meskipun {mode_phrase}, distribusi komoditas pada klaster ini secara "
             "keseluruhan relatif merata di antara berbagai kategori SITC."
         )
+        if entropy_text is not None:
+            entropy_sentence = _append_stat_evidence(
+                entropy_sentence,
+                f"Berdasarkan nilai normalized entropy sebesar {entropy_text}",
+            )
+        paragraphs.append(entropy_sentence)
 
     if analysis.get("is_shap_important"):
-        paragraphs.append(
+        shap_sentence = (
             "Komposisi kategori SITC juga menjadi salah satu fitur yang kuat dalam "
             "membedakan karakteristik klaster ini dari kelompok lainnya."
         )
+        share = analysis.get("shap_share")
+        if share is not None and np.isfinite(float(share)):
+            shap_sentence = _append_stat_evidence(
+                shap_sentence,
+                "Berdasarkan SHAP importance share sebesar "
+                f"{float(share) * 100:.1f}%",
+            )
+        paragraphs.append(shap_sentence)
 
     return {
         "paragraphs": paragraphs,
