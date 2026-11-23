@@ -202,7 +202,8 @@ def find_optimal_k_by_silhouette(
     clustering that will actually be used. Ties are resolved by the smallest K.
 
     Returns ``{"best_k", "best_silhouette", "scores"}`` where ``scores`` always
-    contains one row per candidate K, including ``NaN`` silhouette values.
+    contains one row per candidate K with ``K`` and ``Silhouette`` columns,
+    including ``NaN`` silhouette values.
     """
     candidates = list(OPTIMAL_K_RANGE if k_values is None else k_values)
     if not candidates:
@@ -222,7 +223,7 @@ def find_optimal_k_by_silhouette(
                 random_state=random_state,
             )
             gamma = float(getattr(model, "gamma", 1.0))
-            silhouette, sample_n = kprototypes_silhouette(
+            silhouette, _ = kprototypes_silhouette(
                 prepared["X_model"],
                 labels,
                 gamma,
@@ -232,14 +233,13 @@ def find_optimal_k_by_silhouette(
         except Exception:
             # Some K values cannot be initialised when the categorical feature
             # has too few distinct values. Keep the search alive and record NaN.
-            silhouette, sample_n = float("nan"), 0
+            silhouette = float("nan")
             skipped.append(k)
 
         rows.append(
             {
                 "K": k,
                 "Silhouette": float(silhouette),
-                "N": int(sample_n),
             }
         )
         if progress_callback is not None:

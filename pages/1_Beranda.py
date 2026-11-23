@@ -13,6 +13,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
+HOME_CSS = """
+<style>
+.st-key-manual_book_download {
+    margin-top: 1.25rem;
+}
+.st-key-download_manual_book {
+    width: 100% !important;
+}
+.st-key-manual_book_download [data-testid='stDownloadButton'] {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+.st-key-manual_book_download [data-testid='stDownloadButton'] button {
+    width: auto !important;
+    max-width: 100%;
+    min-height: 50px;
+    padding: 13px 30px !important;
+    font-size: 15.5px !important;
+    gap: 10px;
+}
+.st-key-manual_book_download [data-testid='stDownloadButton'] button svg,
+.st-key-manual_book_download [data-testid='stDownloadButton'] button [data-testid='stIconMaterial'] {
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 20px !important;
+}
+.manual-book-caption {
+    margin-top: 6px;
+    text-align: center;
+    color: #73798B;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.4;
+}
+</style>
+"""
+
+
+@st.cache_data(show_spinner=False)
+def _manual_book_bytes(path: str, modified_at: float) -> bytes:
+    return Path(path).read_bytes()
+
 
 def render() -> None:
     st.markdown(
@@ -36,7 +79,7 @@ def render() -> None:
     st.markdown(
         """
         <div class="guide-banner">
-          <span class="guide-banner-icon">📖</span> Panduan Pengguna
+          <span class="guide-banner-icon">📖</span> Ringkasan Panduan Pengguna
         </div>
         """,
         unsafe_allow_html=True,
@@ -86,6 +129,34 @@ def render() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+    st.markdown(HOME_CSS, unsafe_allow_html=True)
+    manual_book_path = Path(__file__).resolve().parents[1] / "Manual Book.pdf"
+    with st.container(key="manual_book_download"):
+        if manual_book_path.exists():
+            st.download_button(
+                "Unduh Panduan Pengguna Lengkap",
+                data=_manual_book_bytes(
+                    str(manual_book_path),
+                    manual_book_path.stat().st_mtime,
+                ),
+                file_name="Manual_Book_China_Imports_Port_Clustering.pdf",
+                mime="application/pdf",
+                icon=":material/download:",
+                icon_position="left",
+                type="primary",
+                width="content",
+                key="download_manual_book",
+            )
+            st.markdown(
+                '<div class="manual-book-caption">PDF Manual Book</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.warning(
+                "File Manual Book.pdf tidak ditemukan di folder root project. "
+                "Letakkan berkas tersebut di samping app.py lalu muat ulang halaman."
+            )
 
     st.divider()
     _spacer_left, center, _spacer_right = st.columns([1, 1.4, 1])

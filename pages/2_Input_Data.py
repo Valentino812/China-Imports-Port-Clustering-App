@@ -602,14 +602,13 @@ def render() -> None:
                 "K berikut tidak dapat dievaluasi karena inisialisasi K-Prototypes "
                 "gagal: " + ", ".join(f"K={value}" for value in skipped) + "."
             )
-        with st.expander("Lihat skor silhouette per K"):
+        with st.expander("Detail skor silhouette setiap jumlah klaster (K)"):
             st.dataframe(
                 optimal_result["scores"]
                 .rename(
                     columns={
-                        "K": "K",
+                        "K": "Jumlah Klaster (K)",
                         "Silhouette": "Rata-rata Silhouette",
-                        "N": "Jumlah Sampel",
                     }
                 )
                 .round(4),
